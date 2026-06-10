@@ -1093,7 +1093,8 @@ function pickStatus(key, status) {
     return;
   }
   const data = loadData(currentPerson, ym());
-  data[key] = status;
+  const raw = data[key] || null;
+  data[key] = appendStatus(raw, status, null);
   saveData(currentPerson, ym(), data);
   render();
   showToast(`✅ 已登记：${STATUS[status].label}`);
@@ -1535,11 +1536,10 @@ function renderDaysGrid() {
         });
       } else {
         cell.addEventListener('click', () => {
-          if (hasAny) {
-            showToast('🔒 已申报的数据不可修改，请联系管理员', true);
-          } else if (isPersonLocked(currentPerson) && !unlockedPersons.has(currentPerson)) {
+          if (isPersonLocked(currentPerson) && !unlockedPersons.has(currentPerson)) {
             showToast('🔒 此身份已锁定，请先输入密码解锁', true);
           } else {
+            // 已有数据：追加新状态（不覆盖）；无数据：正常填报
             showStatusPicker(key, key > todayStr);
           }
         });
@@ -2177,4 +2177,3 @@ function restoreEmbeddedData() {
 </script>
 </body>
 </html>
-<!-- GitHub Pages deploy -->
