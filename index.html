@@ -392,9 +392,10 @@ if (_SB) {
     const orig_savePeople = savePeople;
     savePeople = function(people) {
       _C.people = [...people];
+      orig_savePeople(people);  // localStorage 回写作为兜底
       (async () => {
         const old = new Set(orig_loadPeople()), now = new Set(people), enc = encodeURIComponent;
-        for (const n of now) { if (!old.has(n)) try { await _sPOST('people', {name: n}); } catch(e) {} }
+        for (const n of now) { if (!old.has(n)) try { const r = await fetch(`${SUPABASE_URL}/rest/v1/people`, {method:'POST', headers:{apikey:SUPABASE_KEY,Authorization:`Bearer ${SUPABASE_KEY}`,'Content-Type':'application/json',Prefer:'return=minimal'}, body:JSON.stringify({name:n})}); if (!r.ok) console.error('savePeople POST failed:', r.status); } catch(e) { console.error('savePeople POST error:', e); } }
       })().catch(e => console.error(e));
     };
 
@@ -478,41 +479,44 @@ if (_SB) {
     console.log('✅ Supabase 云模式已启用');
   }
 
-  const _orig_init = init;
-  init = async function() {
-    try { await _loadAll(); } catch(e) { console.error('Supabase load error:', e); }
-    _orig_init();
-    _injectOverrides();
-    // 加载当前月份云端数据
-    setTimeout(async () => {
-      if (currentPerson && currentYear && currentMonth) {
+  // 延迟安装 init 覆写（等第二个 script 块的 init 定义好）
+  window.addEventListener('DOMContentLoaded', () => {
+    const _orig_init = init;
+    init = async function() {
+      try { await _loadAll(); } catch(e) { console.error('Supabase load error:', e); }
+      _orig_init();
+      _injectOverrides();
+      // 加载当前月份云端数据
+      setTimeout(async () => {
+        if (currentPerson && currentYear && currentMonth) {
+          const ym = currentYear + '-' + String(currentMonth).padStart(2,'0'), enc = encodeURIComponent;
+          try {
+            const rows = await _sGET(`attendance?select=day_key,status_data&person=eq.${enc(currentPerson)}&year_month=eq.${ym}`);
+            const d = {}; for (const r of rows) d[r.day_key] = r.status_data;
+            _C.dataCache[`${currentPerson}|${ym}`] = d;
+            render();
+          } catch(e) {}
+          try {
+            const nr = await _sGET(`notes?select=day_key,note&person=eq.${enc(currentPerson)}&year_month=eq.${ym}`);
+            const nd = {}; for (const r of nr) nd[r.day_key] = r.note;
+            _C.noteCache[`${currentPerson}|${ym}`] = nd;
+            render();
+          } catch(e) {}
+        }
+      }, 500);
+      // 实时轮询（每10秒）
+      setInterval(async () => {
+        if (!currentPerson || !currentYear || !currentMonth) return;
         const ym = currentYear + '-' + String(currentMonth).padStart(2,'0'), enc = encodeURIComponent;
         try {
           const rows = await _sGET(`attendance?select=day_key,status_data&person=eq.${enc(currentPerson)}&year_month=eq.${ym}`);
-          const d = {}; for (const r of rows) d[r.day_key] = r.status_data;
-          _C.dataCache[`${currentPerson}|${ym}`] = d;
-          render();
+          const nd = {}; for (const r of rows) nd[r.day_key] = r.status_data;
+          const ck = `${currentPerson}|${ym}`;
+          if (JSON.stringify(nd) !== JSON.stringify(_C.dataCache[ck] || {})) { _C.dataCache[ck] = nd; render(); }
         } catch(e) {}
-        try {
-          const nr = await _sGET(`notes?select=day_key,note&person=eq.${enc(currentPerson)}&year_month=eq.${ym}`);
-          const nd = {}; for (const r of nr) nd[r.day_key] = r.note;
-          _C.noteCache[`${currentPerson}|${ym}`] = nd;
-          render();
-        } catch(e) {}
-      }
-    }, 500);
-    // 实时轮询（每10秒）
-    setInterval(async () => {
-      if (!currentPerson || !currentYear || !currentMonth) return;
-      const ym = currentYear + '-' + String(currentMonth).padStart(2,'0'), enc = encodeURIComponent;
-      try {
-        const rows = await _sGET(`attendance?select=day_key,status_data&person=eq.${enc(currentPerson)}&year_month=eq.${ym}`);
-        const nd = {}; for (const r of rows) nd[r.day_key] = r.status_data;
-        const ck = `${currentPerson}|${ym}`;
-        if (JSON.stringify(nd) !== JSON.stringify(_C.dataCache[ck] || {})) { _C.dataCache[ck] = nd; render(); }
-      } catch(e) {}
-    }, 10000);
-  };
+      }, 10000);
+    };
+  });
 }
 </script>
 </head>
