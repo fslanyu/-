@@ -397,7 +397,10 @@ if (_SB) {
       orig_savePeople(people);  // localStorage 回写作为兜底
       (async () => {
         const old = new Set(oldPeople), now = new Set(people), enc = encodeURIComponent;
+        // POST 新增的人员
         for (const n of now) { if (!old.has(n)) try { const r = await fetch(`${SUPABASE_URL}/rest/v1/people`, {method:'POST', headers:{apikey:SUPABASE_KEY,Authorization:`Bearer ${SUPABASE_KEY}`,'Content-Type':'application/json',Prefer:'return=minimal'}, body:JSON.stringify({name:n})}); if (!r.ok) console.error('savePeople POST failed:', r.status); } catch(e) { console.error('savePeople POST error:', e); } }
+        // DELETE 被移除的人员
+        for (const n of old) { if (!now.has(n)) try { const r = await fetch(`${SUPABASE_URL}/rest/v1/people?name=eq.${enc(n)}`, {method:'DELETE', headers:{apikey:SUPABASE_KEY,Authorization:`Bearer ${SUPABASE_KEY}`,Prefer:'return=minimal'}}); if (!r.ok) console.error('savePeople DELETE failed:', r.status); } catch(e) { console.error('savePeople DELETE error:', e); } }
       })().catch(e => console.error(e));
     };
 
