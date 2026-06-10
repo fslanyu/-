@@ -1,0 +1,11 @@
+# Ignore everything by default
+/*
+# Except project files
+!/考勤日历.html
+!/考勤日历-supabase.html
+!/考勤日历-supabase-setup.sql
+!/考勤日历服务器.py
+!/考勤日历-render/
+!/考勤日历.db
+!/supabase-shim.js
+!/PPT倒计时.html

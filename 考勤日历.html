@@ -1,0 +1,2179 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>考勤日历 - 多人版</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: #f0f2f5;
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  padding: 20px;
+}
+.container { width: 100%; max-width: 960px; }
+
+/* Header */
+.header {
+  background: #fff; border-radius: 12px; padding: 18px 24px;
+  margin-bottom: 12px; display: flex; align-items: center;
+  justify-content: space-between; box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  flex-wrap: wrap; gap: 10px;
+}
+.header h1 { font-size: 21px; color: #1a1a2e; white-space: nowrap; }
+.nav { display: flex; align-items: center; gap: 8px; }
+.nav button {
+  width: 34px; height: 34px; border: 1px solid #d9d9d9;
+  background: #fff; border-radius: 8px; cursor: pointer;
+  font-size: 15px; color: #555; transition: all 0.15s;
+  display: flex; align-items: center; justify-content: center;
+}
+.nav button:hover { border-color: #4a6cf7; color: #4a6cf7; background: #f0f4ff; }
+.nav .month-label {
+  font-size: 15px; font-weight: 600; color: #333;
+  min-width: 120px; text-align: center;
+}
+.btn-today {
+  padding: 6px 14px; border: 1px solid #4a6cf7;
+  background: #4a6cf7; color: #fff; border-radius: 8px;
+  cursor: pointer; font-size: 13px; transition: all 0.15s;
+}
+.btn-today:hover { background: #3b5de7; }
+
+/* Admin badge & button */
+.admin-badge {
+  font-size: 11px; background: #f59e0b; color: #fff;
+  padding: 3px 10px; border-radius: 10px; font-weight: 600;
+  animation: pulse 2s infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+.btn-admin {
+  padding: 6px 14px; border: 1px solid #f59e0b;
+  background: #fff; color: #f59e0b; border-radius: 8px;
+  cursor: pointer; font-size: 12px; transition: all 0.15s;
+}
+.btn-admin:hover { background: #fffbeb; border-color: #d97706; color: #d97706; }
+.btn-admin.logged-in { background: #f59e0b; color: #fff; }
+.btn-admin.logged-in:hover { background: #d97706; }
+
+/* Person Bar */
+.person-bar {
+  background: #fff; border-radius: 12px; padding: 12px 20px;
+  margin-bottom: 12px; display: flex; align-items: center; gap: 12px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08); flex-wrap: wrap;
+}
+.person-bar .label { font-size: 13px; color: #888; white-space: nowrap; }
+.person-tabs { display: flex; gap: 6px; flex-wrap: wrap; flex: 1; }
+.person-tab {
+  padding: 5px 14px; border-radius: 16px; border: 1px solid #e0e0e0;
+  background: #fff; cursor: pointer; font-size: 13px; transition: all 0.15s;
+  white-space: nowrap; color: #555; position: relative;
+}
+.person-tab:hover { border-color: #4a6cf7; color: #4a6cf7; }
+.person-tab.active { background: #4a6cf7; color: #fff; border-color: #4a6cf7; font-weight: 600; }
+.person-tab .del {
+  margin-left: 6px; font-size: 11px; opacity: 0.6;
+  display: inline-block; width: 16px; height: 16px; line-height: 16px;
+  text-align: center; border-radius: 50%; cursor: pointer;
+}
+.person-tab .del:hover { opacity: 1; background: rgba(0,0,0,0.15); }
+.person-tab.active .del:hover { background: rgba(255,255,255,0.3); }
+.add-person-btn {
+  padding: 5px 14px; border-radius: 16px; border: 1px dashed #ccc;
+  background: #fafafa; cursor: pointer; font-size: 13px; color: #999;
+  transition: all 0.15s; white-space: nowrap;
+}
+.add-person-btn:hover { border-color: #4a6cf7; color: #4a6cf7; background: #f0f4ff; }
+
+/* Identity selector (non-admin) */
+.identity-select {
+  padding: 6px 14px; border-radius: 8px; border: 1px solid #d9d9d9;
+  font-size: 14px; color: #333; background: #fff; cursor: pointer;
+  outline: none; min-width: 120px;
+}
+.identity-select:focus { border-color: #4a6cf7; }
+
+/* View Toggle */
+.view-toggle {
+  display: flex; gap: 4px; background: #f0f0f0; border-radius: 8px; padding: 3px;
+}
+.view-toggle button {
+  padding: 5px 14px; border-radius: 6px; border: none; background: transparent;
+  cursor: pointer; font-size: 12px; color: #777; transition: all 0.15s;
+}
+.view-toggle button.active { background: #fff; color: #333; font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+
+/* Legend */
+.legend {
+  background: #fff; border-radius: 12px; padding: 10px 20px;
+  margin-bottom: 12px; display: flex; gap: 14px; flex-wrap: wrap;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08); align-items: center;
+}
+.legend-item { display: flex; align-items: center; gap: 5px; font-size: 12px; color: #555; }
+.legend-dot { width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; }
+
+/* Stats */
+.stats {
+  background: #fff; border-radius: 12px; padding: 12px 20px;
+  margin-bottom: 12px; display: flex; gap: 16px; flex-wrap: wrap;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08); font-size: 13px;
+}
+.stat-item { color: #666; }
+.stat-item b { color: #333; font-size: 15px; }
+
+/* Calendar */
+.calendar { background: #fff; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); overflow: hidden; }
+.weekdays {
+  display: grid; grid-template-columns: repeat(7, 1fr);
+  background: #fafafa; border-bottom: 1px solid #eee;
+}
+.weekdays div { padding: 10px 6px; text-align: center; font-size: 12px; font-weight: 600; color: #888; }
+.weekend-label { color: #e07060 !important; }
+.days { display: grid; grid-template-columns: repeat(7, 1fr); }
+.day-cell {
+  aspect-ratio: 1; border: 1px solid #f0f0f0;
+  cursor: pointer; position: relative; transition: all 0.12s;
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 2px; user-select: none; min-height: 78px;
+}
+.day-cell:hover { box-shadow: inset 0 0 0 2px #4a6cf7; z-index: 2; }
+.day-cell.empty { cursor: default; background: #fafafa; }
+.day-cell.empty:hover { box-shadow: none; }
+.day-cell.today { box-shadow: inset 0 0 0 2px #4a6cf7; }
+.day-cell.weekend { background: #fdf8f7; }
+.day-cell.locked { cursor: not-allowed; }
+.day-cell.locked:hover { box-shadow: none; }
+.day-num {
+  font-size: 13px; font-weight: 500; color: #333;
+  line-height: 1;
+}
+.today .day-num {
+  background: #4a6cf7; color: #fff; border-radius: 50%;
+  width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
+}
+.status-badge {
+  font-size: 10px; padding: 1px 7px; border-radius: 10px; font-weight: 500;
+  white-space: nowrap; line-height: 1.5;
+}
+.lock-icon {
+  position: absolute; top: 3px; right: 3px;
+  font-size: 9px; opacity: 0.5;
+}
+.note-dot {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: #f0a030; position: absolute; top: 5px; right: 5px;
+}
+
+/* Team view: multi-person chips */
+.team-chips {
+  display: flex; flex-wrap: wrap; gap: 2px; justify-content: center;
+  max-width: 100%; padding: 0 2px;
+}
+.team-chip {
+  font-size: 9px; padding: 0px 4px; border-radius: 8px;
+  white-space: nowrap; line-height: 1.6; font-weight: 500;
+}
+.team-chip.present { background: #e6f7e6; color: #2d8a2d; }
+.team-chip.absent  { background: #ffe8e8; color: #d14343; }
+.team-chip.late    { background: #fff3e0; color: #e67e22; }
+.team-chip.leave   { background: #e8f0fe; color: #3b6fd4; }
+.team-chip.trip    { background: #f3e8ff; color: #7c3aed; }
+.team-chip.overtime { background: #fff7ed; color: #ea580c; }
+.team-chip.overtime_day { background: #fff0e0; color: #c2410c; }
+
+/* Single view status colors */
+.s-present .status-badge { background: #e6f7e6; color: #2d8a2d; }
+.s-present { background: #fafffa; }
+.s-absent .status-badge { background: #ffe8e8; color: #d14343; }
+.s-absent { background: #fffafa; }
+.s-late .status-badge { background: #fff3e0; color: #e67e22; }
+.s-late { background: #fffdfa; }
+.s-leave .status-badge { background: #e8f0fe; color: #3b6fd4; }
+.s-leave { background: #fafcff; }
+.s-trip .status-badge { background: #f3e8ff; color: #7c3aed; }
+.s-trip { background: #fdfaff; }
+
+/* 超时 */
+.s-overtime .status-badge { background: #fff7ed; color: #ea580c; }
+.s-overtime { background: #fffdfb; }
+
+/* 加班 */
+.s-overtime_day .status-badge { background: #fff0e0; color: #c2410c; }
+.s-overtime_day { background: #fffcf8; }
+
+/* Note Panel */
+.note-panel {
+  background: #fff; border-radius: 12px; padding: 18px 24px;
+  margin-top: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); display: none;
+}
+.note-panel.active { display: block; }
+.note-panel h3 { font-size: 14px; color: #333; margin-bottom: 8px; }
+.note-panel textarea {
+  width: 100%; height: 70px; border: 1px solid #d9d9d9;
+  border-radius: 8px; padding: 10px; font-size: 13px; font-family: inherit; resize: vertical;
+}
+.note-panel textarea:focus { outline: none; border-color: #4a6cf7; }
+.note-btns { display: flex; gap: 8px; margin-top: 8px; }
+.note-btns button { padding: 5px 16px; border-radius: 6px; cursor: pointer; font-size: 12px; border: none; }
+.btn-save { background: #4a6cf7; color: #fff; }
+.btn-save:hover { background: #3b5de7; }
+.btn-clear { background: #f0f0f0; color: #666; }
+.btn-clear:hover { background: #e0e0e0; }
+
+/* Actions */
+.actions {
+  display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; justify-content: flex-end;
+}
+.actions button {
+  padding: 7px 16px; border-radius: 8px; border: 1px solid #d9d9d9;
+  background: #fff; cursor: pointer; font-size: 12px; color: #555; transition: all 0.15s;
+}
+.actions button:hover { border-color: #4a6cf7; color: #4a6cf7; }
+.actions .btn-export { background: #4a6cf7; color: #fff; border-color: #4a6cf7; }
+.actions .btn-export:hover { background: #3b5de7; }
+.actions .btn-danger { color: #d14343; border-color: #d14343; }
+.actions .btn-danger:hover { background: #fff0f0; }
+
+/* Modal */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.35);
+  display: flex; align-items: center; justify-content: center; z-index: 99;
+}
+.modal {
+  background: #fff; border-radius: 14px; padding: 24px; min-width: 320px;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.15);
+}
+.modal h3 { font-size: 16px; color: #333; margin-bottom: 14px; }
+.modal input {
+  width: 100%; padding: 10px 14px; border: 1px solid #d9d9d9;
+  border-radius: 8px; font-size: 15px; outline: none;
+}
+.modal input:focus { border-color: #4a6cf7; }
+.modal-btns { display: flex; gap: 8px; margin-top: 14px; justify-content: flex-end; }
+.modal-btns button {
+  padding: 7px 20px; border-radius: 8px; cursor: pointer; font-size: 13px; border: none;
+}
+.modal-btns .btn-confirm { background: #4a6cf7; color: #fff; }
+.modal-btns .btn-cancel { background: #f0f0f0; color: #666; }
+
+/* Status Picker (non-admin) */
+.status-picker-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.2);
+  display: flex; align-items: center; justify-content: center; z-index: 98;
+}
+.status-picker {
+  background: #fff; border-radius: 14px; padding: 20px 24px;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.15); text-align: center;
+}
+.status-picker h3 { font-size: 15px; color: #333; margin-bottom: 14px; }
+.status-picker .picker-btns { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.status-picker .picker-btn {
+  padding: 8px 16px; border-radius: 20px; border: 2px solid #e0e0e0;
+  background: #fff; cursor: pointer; font-size: 13px; transition: all 0.15s;
+  font-weight: 500;
+}
+.status-picker .picker-btn:hover { transform: scale(1.05); }
+.status-picker .picker-btn.present { border-color: #2d8a2d; color: #2d8a2d; }
+.status-picker .picker-btn.present:hover { background: #e6f7e6; }
+.status-picker .picker-btn.absent { border-color: #d14343; color: #d14343; }
+.status-picker .picker-btn.absent:hover { background: #ffe8e8; }
+.status-picker .picker-btn.late { border-color: #e67e22; color: #e67e22; }
+.status-picker .picker-btn.late:hover { background: #fff3e0; }
+.status-picker .picker-btn.leave { border-color: #3b6fd4; color: #3b6fd4; }
+.status-picker .picker-btn.leave:hover { background: #e8f0fe; }
+.status-picker .picker-btn.trip { border-color: #7c3aed; color: #7c3aed; }
+.status-picker .picker-btn.trip:hover { background: #f3e8ff; }
+.status-picker .picker-btn.overtime { border-color: #ea580c; color: #ea580c; }
+.status-picker .picker-btn.overtime:hover { background: #fff7ed; }
+.status-picker .picker-btn.overtime_day { border-color: #c2410c; color: #c2410c; }
+.status-picker .picker-btn.overtime_day:hover { background: #fff0e0; }
+.status-picker .picker-cancel {
+  margin-top: 12px; padding: 5px 16px; border-radius: 6px;
+  border: none; background: #f0f0f0; color: #888; cursor: pointer; font-size: 12px;
+}
+
+/* 多状态编辑器 */
+.multi-items { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+.multi-item {
+  display: flex; align-items: center; justify-content: space-between;
+  background: #f8f9fa; padding: 6px 12px; border-radius: 6px;
+  border: 1px solid #e0e0e0; font-size: 13px;
+}
+.multi-label { color: #333; font-weight: 500; }
+.multi-del {
+  width: 22px; height: 22px; border: none; background: #fee2e2;
+  color: #dc2626; border-radius: 50%; cursor: pointer; font-size: 12px;
+  line-height: 22px; text-align: center; padding: 0;
+}
+.multi-del:hover { background: #fca5a5; color: #991b1b; }
+
+/* Toast */
+.toast {
+  position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+  background: #333; color: #fff; padding: 10px 24px; border-radius: 8px;
+  font-size: 14px; z-index: 200; animation: toastIn 0.3s ease;
+  pointer-events: none;
+}
+.toast.warn { background: #e67e22; }
+@keyframes toastIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+@media (max-width: 600px) {
+  .header { padding: 12px 14px; }
+  .day-cell { min-height: 52px; }
+  .status-badge { font-size: 9px; padding: 0 4px; }
+  .day-num { font-size: 11px; }
+}
+
+@media print {
+  body { background: #fff; padding: 0; }
+  .person-bar, .note-panel, .actions, .legend, .view-toggle, .add-person-btn { display: none !important; }
+  .person-tabs { display: none !important; }
+  .calendar { box-shadow: none; }
+  .day-cell { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
+}</style>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<script>
+// ════════════════════════════════════════════════════════
+// Supabase 云模式兼容层
+// 填入 URL 和 KEY 后自动启用；留 'xxxx' 则保持本地模式
+// ════════════════════════════════════════════════════════
+const SUPABASE_URL = 'https://xxxxxxxxxxxx.supabase.co';
+const SUPABASE_KEY = 'eyJhbG...VCJ9...';
+const _SB = !!(SUPABASE_URL && SUPABASE_KEY && !SUPABASE_URL.includes('xxxx'));
+
+if (_SB) {
+  const _C = { people: null, pinMap: {}, configMap: {}, dataCache: {}, noteCache: {} };
+
+  async function _sGET(p) {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/${p}`, {
+      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` }
+    }); if (!r.ok) throw new Error(`${p}: ${r.status}`); return r.json();
+  }
+  async function _sPOST(t, b) {
+    await fetch(`${SUPABASE_URL}/rest/v1/${t}`, {
+      method: 'POST', headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`,
+        'Content-Type': 'application/json', Prefer: 'return=minimal' }, body: JSON.stringify(b) });
+  }
+  async function _sPATCH(t, m, b) {
+    await fetch(`${SUPABASE_URL}/rest/v1/${t}?${m}`, {
+      method: 'PATCH', headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`,
+        'Content-Type': 'application/json', Prefer: 'return=minimal' }, body: JSON.stringify(b) });
+  }
+  async function _sDELETE(t, m) {
+    await fetch(`${SUPABASE_URL}/rest/v1/${t}?${m}`, {
+      method: 'DELETE', headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`,
+        Prefer: 'return=minimal' } });
+  }
+
+  // 从 Supabase 加载
+  async function _loadAll() {
+    const [ppl, pins, cfg] = await Promise.all([
+      _sGET('people?select=name&order=name'), _sGET('pins?select=*'), _sGET('config?select=*') ]);
+    _C.people = ppl.map(r => r.name);
+    for (const r of pins) _C.pinMap[r.person] = { locked: true, pin: r.pin };
+    for (const r of cfg) _C.configMap[r.key] = r.value;
+  }
+
+  // 延迟注入（等原始函数定义后覆盖）
+  function _injectOverrides() {
+    const orig_loadPeople = loadPeople;
+    loadPeople = function() { return _C.people ? [..._C.people] : []; };
+
+    const orig_savePeople = savePeople;
+    savePeople = function(people) {
+      _C.people = [...people];
+      (async () => {
+        const old = new Set(orig_loadPeople()), now = new Set(people), enc = encodeURIComponent;
+        for (const n of now) { if (!old.has(n)) try { await _sPOST('people', {name: n}); } catch(e) {} }
+      })().catch(e => console.error(e));
+    };
+
+    const orig_loadData = loadData;
+    loadData = function(person, ym) {
+      return _C.dataCache[`${person}|${ym}`] || orig_loadData(person, ym);
+    };
+    const orig_saveData = saveData;
+    saveData = function(person, ym, data) {
+      _C.dataCache[`${person}|${ym}`] = {...data};
+      const enc = encodeURIComponent;
+      for (const [dk, sd] of Object.entries(data)) {
+        (async () => {
+          try {
+            const m = `person=eq.${enc(person)}&year_month=eq.${ym}&day_key=eq.${enc(dk)}`;
+            const ex = await _sGET(`attendance?select=id&${m}`);
+            ex.length ? await _sPATCH('attendance', `id=eq.${ex[0].id}`, {status_data: sd})
+                      : await _sPOST('attendance', {person, year_month: ym, day_key: dk, status_data: sd});
+          } catch(e) { console.error(e); }
+        })();
+      }
+      orig_saveData(person, ym, data);
+    };
+
+    const orig_loadNotes = loadNotes;
+    loadNotes = function(person, ym) {
+      return _C.noteCache[`${person}|${ym}`] || orig_loadNotes(person, ym);
+    };
+    const orig_saveNotes = saveNotes;
+    saveNotes = function(person, ym, data) {
+      _C.noteCache[`${person}|${ym}`] = {...data};
+      const enc = encodeURIComponent;
+      for (const [dk, note] of Object.entries(data)) {
+        (async () => {
+          try {
+            const m = `person=eq.${enc(person)}&year_month=eq.${ym}&day_key=eq.${enc(dk)}`;
+            const ex = await _sGET(`notes?select=id&${m}`);
+            ex.length ? await _sPATCH('notes', `id=eq.${ex[0].id}`, {note})
+                      : await _sPOST('notes', {person, year_month: ym, day_key: dk, note});
+          } catch(e) { console.error(e); }
+        })();
+      }
+      orig_saveNotes(person, ym, data);
+    };
+
+    isPersonLocked = function(name) { return !!(_C.pinMap[name] && _C.pinMap[name].locked); };
+    getPersonPin = function(name) { return (_C.pinMap[name] && _C.pinMap[name].pin) || ''; };
+    setPersonPin = function(name, pin) {
+      _C.pinMap[name] = { locked: true, pin };
+      (async () => { try { await _sDELETE('pins', 'person=eq.'+encodeURIComponent(name)); } catch(e) {}
+                      await _sPOST('pins', {person: name, pin}); })().catch(e => console.error(e));
+    };
+    removePersonLock = function(name) {
+      if (_C.pinMap[name]) { delete _C.pinMap[name]; unlockedPersons.delete(name); }
+      (async () => { try { await _sDELETE('pins', 'person=eq.'+encodeURIComponent(name)); } catch(e) {} })().catch(e => console.error(e));
+    };
+
+    getPassword = function() { return _C.configMap['admin_password'] || DEFAULT_PASSWORD; };
+    setPassword = function(newPwd) {
+      _C.configMap['admin_password'] = newPwd;
+      (async () => {
+        const m = 'key=eq.admin_password', ex = await _sGET(`config?select=id&${m}`);
+        ex.length ? await _sPATCH('config', `id=eq.${ex[0].id}`, {value: newPwd})
+                  : await _sPOST('config', {key: 'admin_password', value: newPwd});
+      })().catch(e => console.error(e));
+    };
+
+    loadAdminUsers = function() {
+      try { return JSON.parse(_C.configMap['admin_users'] || 'null') || DEFAULT_ADMIN_USERS; }
+      catch { return DEFAULT_ADMIN_USERS; }
+    };
+    saveAdminUsers = function(users) {
+      _C.configMap['admin_users'] = JSON.stringify(users);
+      (async () => {
+        const m = 'key=eq.admin_users', v = JSON.stringify(users), ex = await _sGET(`config?select=id&${m}`);
+        ex.length ? await _sPATCH('config', `id=eq.${ex[0].id}`, {value: v})
+                  : await _sPOST('config', {key: 'admin_users', value: v});
+      })().catch(e => console.error(e));
+    };
+
+    console.log('✅ Supabase 云模式已启用');
+  }
+
+  const _orig_init = init;
+  init = async function() {
+    try { await _loadAll(); } catch(e) { console.error('Supabase load error:', e); }
+    _orig_init();
+    _injectOverrides();
+    // 加载当前月份云端数据
+    setTimeout(async () => {
+      if (currentPerson && currentYear && currentMonth) {
+        const ym = currentYear + '-' + String(currentMonth).padStart(2,'0'), enc = encodeURIComponent;
+        try {
+          const rows = await _sGET(`attendance?select=day_key,status_data&person=eq.${enc(currentPerson)}&year_month=eq.${ym}`);
+          const d = {}; for (const r of rows) d[r.day_key] = r.status_data;
+          _C.dataCache[`${currentPerson}|${ym}`] = d;
+          render();
+        } catch(e) {}
+        try {
+          const nr = await _sGET(`notes?select=day_key,note&person=eq.${enc(currentPerson)}&year_month=eq.${ym}`);
+          const nd = {}; for (const r of nr) nd[r.day_key] = r.note;
+          _C.noteCache[`${currentPerson}|${ym}`] = nd;
+          render();
+        } catch(e) {}
+      }
+    }, 500);
+    // 实时轮询（每10秒）
+    setInterval(async () => {
+      if (!currentPerson || !currentYear || !currentMonth) return;
+      const ym = currentYear + '-' + String(currentMonth).padStart(2,'0'), enc = encodeURIComponent;
+      try {
+        const rows = await _sGET(`attendance?select=day_key,status_data&person=eq.${enc(currentPerson)}&year_month=eq.${ym}`);
+        const nd = {}; for (const r of rows) nd[r.day_key] = r.status_data;
+        const ck = `${currentPerson}|${ym}`;
+        if (JSON.stringify(nd) !== JSON.stringify(_C.dataCache[ck] || {})) { _C.dataCache[ck] = nd; render(); }
+      } catch(e) {}
+    }, 10000);
+  };
+}
+</script>
+</head>
+<body>
+<div class="container" id="app"></div>
+
+<script>
+const STATUS = {
+  present: { label: '休超时假', cls: 's-present' },
+  absent:  { label: '缺勤', cls: 's-absent' },
+  late:    { label: '迟到', cls: 's-late' },
+  leave:   { label: '休假', cls: 's-leave' },
+  trip:    { label: '公差', cls: 's-trip' },
+  overtime:{ label: '超时', cls: 's-overtime' },
+  overtime_day: { label: '加班', cls: 's-overtime_day' },
+};
+const STATUS_ORDER = ['present','absent','late','leave','trip','overtime','overtime_day'];
+
+// 时长选项
+const PRESENT_HOURS = ['半天', '全天', '0.5', '1', '1.5', '2', '2.5', '3', '3.5', '4', '4.5', '5', '5.5', '6', '6.5', '7'];
+const TRIP_HOURS = ['0.5', '1', '1.5', '2', '2.5', '3', '3.5', '4', '4.5', '5', '5.5', '6', '6.5', '7'];
+const LEAVE_HOURS = ['半天', '全天'];
+const LEAVE_SUBTYPES = ['年休假', '婚假', '陪产假', '工伤假', '丧假', '育儿假', '护理假'];
+const OVERTIME_DAY_HOURS = ['半天', '全天'];
+// 超时时长（0.5-4，含小数）
+const OVERTIME_HOURS = ['0.5', '1', '1.5', '2', '2.5', '3', '3.5', '4'];
+const STORAGE_PEOPLE = 'attendance_people';
+const STORAGE_CURRENT = 'attendance_current_person';
+const STORAGE_PWD = 'attendance_admin_pwd';
+const STORAGE_PERSON_PIN = 'attendance_person_pin_'; // + name
+const STORAGE_PERSON_UNLOCKED = 'attendance_person_unlocked_'; // + name — 持久化解锁状态
+const STORAGE_ADMIN_USERS = 'attendance_admin_users';
+const DEFAULT_ADMIN_USERS = ['琨', '景斌'];
+const DEFAULT_PASSWORD='fszyy8306';
+
+// 管理员列表（动态，可增删）
+function loadAdminUsers() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_ADMIN_USERS) || 'null') || DEFAULT_ADMIN_USERS; }
+  catch { return DEFAULT_ADMIN_USERS; }
+}
+function saveAdminUsers(users) {
+  localStorage.setItem(STORAGE_ADMIN_USERS, JSON.stringify(users));
+}
+
+let currentYear, currentMonth, currentPerson, viewMode = 'single';
+let activeDate = null;
+let modalCb = null;
+let isAdmin = false;
+let currentAdmin = '';
+let unlockedPersons = new Set(); // 本次会话已解锁的身份
+
+// ── Storage ──
+function loadPeople() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_PEOPLE) || '[]'); }
+  catch { return []; }
+}
+function savePeople(people) { localStorage.setItem(STORAGE_PEOPLE, JSON.stringify(people)); }
+function loadCurrentPerson() {
+  const p = localStorage.getItem(STORAGE_CURRENT);
+  const people = loadPeople();
+  return (p && people.includes(p)) ? p : (people[0] || '');
+}
+function saveCurrentPerson(p) { localStorage.setItem(STORAGE_CURRENT, p); }
+
+function storageKey(person, ym) { return `att_${person}_${ym}`; }
+function noteKey(person, ym) { return `att_note_${person}_${ym}`; }
+function loadData(person, ym) {
+  try { return JSON.parse(localStorage.getItem(storageKey(person, ym)) || '{}'); }
+  catch { return {}; }
+}
+function saveData(person, ym, data) { localStorage.setItem(storageKey(person, ym), JSON.stringify(data)); }
+function loadNotes(person, ym) {
+  try { return JSON.parse(localStorage.getItem(noteKey(person, ym)) || '{}'); }
+  catch { return {}; }
+}
+function saveNotes(person, ym, data) { localStorage.setItem(noteKey(person, ym), JSON.stringify(data)); }
+
+// ── 个人身份锁定 ──
+function isPersonLocked(name) {
+  return !!localStorage.getItem(STORAGE_PERSON_PIN + name);
+}
+function getPersonPin(name) {
+  return localStorage.getItem(STORAGE_PERSON_PIN + name) || '';
+}
+function setPersonPin(name, pin) {
+  localStorage.setItem(STORAGE_PERSON_PIN + name, pin);
+}
+function removePersonLock(name) {
+  localStorage.removeItem(STORAGE_PERSON_PIN + name);
+  // 同时清除持久化的解锁状态
+  localStorage.removeItem(STORAGE_PERSON_UNLOCKED + name);
+  unlockedPersons.delete(name);
+}
+
+// 持久化解锁状态（解锁一次，下次打开不用再输密码）
+function isPersonPersistedUnlocked(name) {
+  return localStorage.getItem(STORAGE_PERSON_UNLOCKED + name) === '1';
+}
+function persistUnlock(name) {
+  localStorage.setItem(STORAGE_PERSON_UNLOCKED + name, '1');
+  unlockedPersons.add(name);
+}
+function clearPersistUnlock(name) {
+  localStorage.removeItem(STORAGE_PERSON_UNLOCKED + name);
+  unlockedPersons.delete(name);
+}
+
+function ym() { return `${currentYear}-${String(currentMonth).padStart(2,'0')}`; }
+function dateKey(y,m,d) { return `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`; }
+
+// ── 休假时长处理 ──
+// 数据格式: "present" = 全天, "present|4" = 4小时
+function parseStatus(raw) {
+  if (!raw) return { status: null, hours: null, subtype: null };
+  const parts = raw.split('|');
+  const status = parts[0];
+  const hours = parts[1] || null;
+  const subtype = (status === 'leave' && parts.length >= 3) ? parts[2] : null;
+  return { status, hours, subtype };
+}
+function formatStatus(status, hours, subtype) {
+  let base;
+  if (subtype) {
+    // 有子类型时强制带上时长字段，保证 3 段格式便于解析
+    base = status + '|' + (hours || '全天') + '|' + subtype;
+  } else if (!hours || hours === '全天') {
+    base = status;
+  } else {
+    base = status + '|' + hours;
+  }
+  return base;
+}
+function getDisplayLabel(raw) {
+  const statuses = parseStatuses(raw);
+  if (statuses.length === 0) return '';
+  return statuses.map(s => {
+    const { status, hours, subtype } = s;
+    if (!status) return '';
+    const label = STATUS[status] ? STATUS[status].label : status;
+    if (status === 'leave' && subtype) {
+      if (hours && hours !== '全天') {
+        if (hours === '半天') return subtype + ' 半天';
+        return subtype + ' ' + hours + 'h';
+      }
+      return subtype;
+    }
+    if (hours && hours !== '全天') {
+      if (hours === '半天') return label + (status === 'present' ? ' 补休半天' : ' 半天');
+      return label + ' ' + hours + 'h';
+    }
+    return label;
+  }).join('/');
+}
+
+// ── 多状态数据模型（支持同一天填写多个状态：休超时假+超时+公差等）──
+const MULTI_SEP = ';;';
+
+// 解析多状态：返回数组 [{status, hours, subtype}, ...]
+function parseStatuses(raw) {
+  if (!raw) return [];
+  return raw.split(MULTI_SEP).map(part => parseStatus(part));
+}
+
+// 格式化多状态字符串
+function formatMultiStatus(statusObjs) {
+  return statusObjs.map(s => {
+    if (s.subtype) return s.status + '|' + (s.hours || '全天') + '|' + s.subtype;
+    if (!s.hours || s.hours === '全天') return s.status;
+    return s.status + '|' + s.hours;
+  }).join(MULTI_SEP);
+}
+
+// 向已有数据追加状态（同类型替换，不同类型叠加）
+function appendStatus(raw, statusType, hours, subtype) {
+  const existing = parseStatuses(raw);
+  const filtered = existing.filter(s => s.status !== statusType);
+  filtered.push({ status: statusType, hours: hours || null, subtype: subtype || null });
+  return formatMultiStatus(filtered);
+}
+
+// 检查是否包含指定状态类型
+function hasStatusType(raw, statusType) {
+  return parseStatuses(raw).some(s => s.status === statusType);
+}
+
+// ── Admin Password ──
+function getPassword() {
+  return localStorage.getItem(STORAGE_PWD) || DEFAULT_PASSWORD;
+}
+function setPassword(newPwd) {
+  localStorage.setItem(STORAGE_PWD, newPwd);
+}
+
+// ── Modal (generic) ──
+function showModal(title, placeholder, cb, pwdMode) {
+  modalCb = cb;
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.id = 'modalOverlay';
+  overlay.innerHTML = `
+    <div class="modal">
+      <h3>${title}</h3>
+      <input id="modalInput" placeholder="${placeholder}" ${pwdMode ? 'type="password"' : ''} autofocus>
+      <div class="modal-btns">
+        <button class="btn-cancel" onclick="closeModal()">取消</button>
+        <button class="btn-confirm" onclick="confirmModal()">确认</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  setTimeout(() => document.getElementById('modalInput').focus(), 50);
+  document.getElementById('modalInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') confirmModal();
+    if (e.key === 'Escape') closeModal();
+  });
+}
+function closeModal() {
+  document.getElementById('modalOverlay')?.remove();
+  modalCb = null;
+}
+function confirmModal() {
+  const val = document.getElementById('modalInput').value.trim();
+  if (val && modalCb) { modalCb(val); }
+  closeModal();
+}
+
+// ── Toast ──
+function showToast(msg, warn) {
+  const t = document.createElement('div');
+  t.className = 'toast' + (warn ? ' warn' : '');
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 2000);
+}
+
+// ── Admin Login / Logout ──
+function showLogin() {
+  // 自定义登录弹窗：身份选择 + 密码
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.id = 'adminLoginOverlay';
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeAdminLogin();
+  });
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:360px;">
+      <h3>🔐 管理员登录</h3>
+      <p style="font-size:13px;color:#888;margin-bottom:8px;">选择身份并输入密码</p>
+      <select id="adminUserSelect" style="width:100%;padding:10px;border:1px solid #d9d9d9;border-radius:6px;font-size:14px;margin-bottom:10px;">
+        ${loadAdminUsers().map(u => `<option value="${u}">${u}</option>`).join('')}
+      </select>
+      <input id="adminPwdInput" type="password" placeholder="输入管理员密码..." autofocus
+        style="width:100%;padding:10px;border:1px solid #d9d9d9;border-radius:6px;font-size:14px;box-sizing:border-box;">
+      <div class="modal-btns" style="margin-top:12px;">
+        <button class="btn-cancel" onclick="closeAdminLogin()">取消</button>
+        <button class="btn-confirm" onclick="confirmAdminLogin()">确认</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  setTimeout(() => document.getElementById('adminPwdInput').focus(), 50);
+  document.getElementById('adminPwdInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') confirmAdminLogin();
+    if (e.key === 'Escape') closeAdminLogin();
+  });
+}
+
+function closeAdminLogin() {
+  document.getElementById('adminLoginOverlay')?.remove();
+}
+
+function confirmAdminLogin() {
+  const user = document.getElementById('adminUserSelect').value;
+  const pwd = document.getElementById('adminPwdInput').value;
+  closeAdminLogin();
+  if (!pwd) return;
+  if (loadAdminUsers().includes(user) && pwd === getPassword()) {
+    isAdmin = true;
+    currentAdmin = user;
+    viewMode = 'single';
+    showToast('✅ ' + user + ' 管理员登录成功');
+    render();
+  } else {
+    showToast('❌ 身份或密码错误', true);
+  }
+}
+
+function doLogout() {
+  isAdmin = false;
+  currentAdmin = '';
+  viewMode = 'single';
+  if (currentPerson) saveCurrentPerson(currentPerson);
+  showToast('已退出管理模式');
+  render();
+}
+
+function showChangePwd() {
+  showModal('🔑 修改管理员密码', '输入新密码...', (newPwd) => {
+    if (!newPwd || newPwd.length < 2) {
+      showToast('密码至少2位', true);
+      return;
+    }
+    setPassword(newPwd);
+    showToast('✅ 密码修改成功');
+  }, false);
+}
+
+// ── 管理管理员列表 ──
+function showManageAdmins() {
+  if (!isAdmin) return;
+  const admins = loadAdminUsers();
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.id = 'manageAdminsOverlay';
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeManageAdmins();
+  });
+  
+  let listHtml = admins.map(a => `
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f0f0f0;">
+      <span style="font-size:14px;">👤 ${a}</span>
+      ${admins.length > 1 ? `<button onclick="removeAdminUser('${a}')" style="border:1px solid #d14343;color:#d14343;background:#fff;border-radius:4px;cursor:pointer;font-size:12px;">移除</button>` : ''}
+    </div>
+  `).join('');
+  
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:380px;">
+      <h3>👑 管理员管理</h3>
+      <div style="margin:10px 0;max-height:200px;overflow-y:auto;">${listHtml}</div>
+      <div style="display:flex;gap:8px;margin-top:12px;">
+        <input id="newAdminName" placeholder="输入新管理员姓名..."
+          style="flex:1;padding:8px;border:1px solid #d9d9d9;border-radius:6px;font-size:13px;">
+        <button onclick="addAdminUser()" style="padding:8px 16px;background:#4a6cf7;color:#fff;border:none;border-radius:6px;cursor:pointer;white-space:nowrap;">添加</button>
+      </div>
+      <div style="margin-top:12px;text-align:right;">
+        <button onclick="closeManageAdmins()" style="padding:6px 16px;background:#f0f0f0;color:#666;border:none;border-radius:6px;cursor:pointer;">关闭</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  document.getElementById('newAdminName').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') addAdminUser();
+    if (e.key === 'Escape') closeManageAdmins();
+  });
+}
+
+function closeManageAdmins() {
+  document.getElementById('manageAdminsOverlay')?.remove();
+}
+
+function addAdminUser() {
+  const input = document.getElementById('newAdminName');
+  const name = input.value.trim();
+  if (!name) { showToast('请输入姓名', true); return; }
+  const admins = loadAdminUsers();
+  if (admins.includes(name)) { showToast('该管理员已存在', true); return; }
+  admins.push(name);
+  saveAdminUsers(admins);
+  closeManageAdmins();
+  showToast('✅ 已添加管理员：' + name);
+  showManageAdmins(); // 重新打开刷新列表
+}
+
+function removeAdminUser(name) {
+  const admins = loadAdminUsers();
+  if (admins.length <= 1) { showToast('至少保留一个管理员', true); return; }
+  if (!confirm(`确定移除管理员「${name}」吗？`)) return;
+  const newAdmins = admins.filter(a => a !== name);
+  saveAdminUsers(newAdmins);
+  // 如果移除的是自己，强制退出
+  if (name === currentAdmin) {
+    isAdmin = false;
+    currentAdmin = '';
+    viewMode = 'single';
+    closeManageAdmins();
+    showToast('⚠️ 你已移除自己的管理员身份，已退出管理');
+    render();
+    return;
+  }
+  showToast('✅ 已移除管理员：' + name);
+  closeManageAdmins();
+  showManageAdmins(); // 重新打开刷新列表
+}
+
+// ── Person PIN lock/unlock prompts (non-admin) ──
+let pinPromptCb = null;
+
+function showPinPrompt(name, title, cb) {
+  pinPromptCb = cb;
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.id = 'pinPromptOverlay';
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closePinPrompt();
+  });
+  overlay.innerHTML = `
+    <div class="modal">
+      <h3>🔒 ${title}</h3>
+      <p style="font-size:13px;color:#888;margin-bottom:10px;">身份：<b>${name}</b></p>
+      <input id="pinInput" type="password" placeholder="输入密码（4位以上）" autofocus maxlength="20">
+      <div class="modal-btns">
+        <button class="btn-cancel" onclick="closePinPrompt()">取消</button>
+        <button class="btn-confirm" onclick="confirmPinPrompt()">确认</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  setTimeout(() => document.getElementById('pinInput').focus(), 50);
+  document.getElementById('pinInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') confirmPinPrompt();
+    if (e.key === 'Escape') closePinPrompt();
+  });
+}
+
+function closePinPrompt() {
+  document.getElementById('pinPromptOverlay')?.remove();
+  pinPromptCb = null;
+}
+
+function confirmPinPrompt() {
+  const val = document.getElementById('pinInput').value.trim();
+  const cb = pinPromptCb; // 先保存回调引用
+  closePinPrompt();       // closePinPrompt 会清掉 pinPromptCb
+  if (val && cb) cb(val);
+}
+
+function unlockPerson(name) {
+  if (!isPersonLocked(name)) return true; // 未锁定，直接通过
+  if (unlockedPersons.has(name)) return true; // 本次已解锁
+  // 还原下拉框到当前人物
+  const sel = document.getElementById('identitySelect');
+  if (sel) sel.value = currentPerson;
+  showPinPrompt(name, '此身份已锁定，请输入密码', (pin) => {
+    if (pin === getPersonPin(name)) {
+      persistUnlock(name);  // 持久化，下次不用再输
+      currentPerson = name;
+      saveCurrentPerson(name);
+      activeDate = null;
+      document.getElementById('notePanel')?.classList.remove('active');
+      showToast('✅ 身份已解锁');
+      render();
+    } else {
+      showToast('❌ 密码错误', true);
+    }
+  });
+  return false;
+}
+
+function lockPerson(name) {
+  showPinPrompt(name, '设置锁定密码', (pin) => {
+    if (pin.length < 2) { showToast('密码至少2位', true); return; }
+    setPersonPin(name, pin);
+    persistUnlock(name);  // 设密码的人就是本人，直接解锁
+    showToast('🔒 身份已锁定');
+    render();
+  });
+}
+
+function changePersonPin(name) {
+  showPinPrompt(name, '修改锁定密码', (pin) => {
+    if (pin.length < 2) { showToast('密码至少2位', true); return; }
+    setPersonPin(name, pin);
+    showToast('✅ 密码已修改');
+    render();
+  });
+}
+
+function unlockPersonPermanently(name) {
+  showPinPrompt(name, '输入密码以解除锁定', (pin) => {
+    if (pin === getPersonPin(name)) {
+      removePersonLock(name);
+      unlockedPersons.delete(name);
+      showToast('🔓 身份已解锁');
+      render();
+    } else {
+      showToast('❌ 密码错误', true);
+    }
+  });
+}
+
+// ── Status Picker (non-admin: 休超时假/缺勤/迟到/休假; admin: all) ──
+function showStatusPicker(key, isFuture) {
+  const overlay = document.createElement('div');
+  overlay.className = 'status-picker-overlay';
+  overlay.id = 'statusPickerOverlay';
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeStatusPicker();
+  });
+
+  let btns = '';
+  // 未来日期只允许休超时假和休假
+  const allowed = isFuture ? { present: STATUS.present, leave: STATUS.leave } : STATUS;
+  for (const [status, info] of Object.entries(allowed)) {
+    btns += `<button class="picker-btn ${status}" onclick="pickStatus('${key}','${status}')">${info.label}</button>`;
+  }
+
+  overlay.innerHTML = `
+    <div class="status-picker">
+      <h3>${isFuture ? '提前申报（仅限休超时假/休假）' : (isAdmin ? '选择考勤状态' : '申报考勤（填后不可修改）')}</h3>
+      <div class="picker-btns">${btns}</div>
+      <button class="picker-cancel" onclick="closeStatusPicker()">取消</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+}
+
+function closeStatusPicker() {
+  document.getElementById('statusPickerOverlay')?.remove();
+}
+
+// ── 多状态编辑器（管理员点击已有数据的格子）──
+function showMultiStatusEditor(key, day) {
+  const data = loadData(currentPerson, ym());
+  const raw = data[key] || '';
+  const statuses = parseStatuses(raw);
+
+  const overlay = document.createElement('div');
+  overlay.className = 'status-picker-overlay';
+  overlay.id = 'multiStatusOverlay';
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeMultiStatusEditor();
+  });
+
+  let itemsHtml = '';
+  for (let i = 0; i < statuses.length; i++) {
+    const s = statuses[i];
+    const lbl = getDisplayLabel(formatStatus(s.status, s.hours, s.subtype));
+    itemsHtml += `<div class="multi-item">
+      <span class="multi-label">${lbl}</span>
+      <button class="multi-del" onclick="removeStatusFromCell('${key}','${s.status}')">✕</button>
+    </div>`;
+  }
+
+  overlay.innerHTML = `
+    <div class="status-picker" style="min-width:300px;">
+      <h3>📅 ${currentYear}/${currentMonth}/${day} - 编辑状态</h3>
+      ${itemsHtml ? `<div class="multi-items">${itemsHtml}</div>` : '<p style="color:#999;font-size:13px;">暂无状态</p>'}
+      <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="picker-btn present" onclick="closeMultiStatusEditor();showStatusPicker('${key}',false)">＋ 添加状态</button>
+        <button class="btn-cancel" onclick="openNote('${key}',${day})">📝 备注</button>
+        <button class="btn-cancel" onclick="closeMultiStatusEditor()">关闭</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+}
+
+function closeMultiStatusEditor() {
+  document.getElementById('multiStatusOverlay')?.remove();
+}
+
+function removeStatusFromCell(key, statusType) {
+  const data = loadData(currentPerson, ym());
+  const raw = data[key] || '';
+  const existing = parseStatuses(raw);
+  const filtered = existing.filter(s => s.status !== statusType);
+  if (filtered.length === 0) {
+    delete data[key];
+  } else {
+    data[key] = formatMultiStatus(filtered);
+  }
+  saveData(currentPerson, ym(), data);
+  closeMultiStatusEditor();
+  render();
+  showToast(`✅ 已移除：${STATUS[statusType]?.label || statusType}`);
+}
+
+function pickStatus(key, status) {
+  closeStatusPicker();
+  if (status === 'leave') {
+    // 休假：先选子类型，再选时长
+    showLeaveSubtypePicker(key);
+    return;
+  }
+  if (status === 'present' || status === 'trip' || status === 'overtime' || status === 'overtime_day') {
+    // 休超时假/公差/超时/加班弹出时长选择
+    showHourPicker(key, status);
+    return;
+  }
+  const data = loadData(currentPerson, ym());
+  data[key] = status;
+  saveData(currentPerson, ym(), data);
+  render();
+  showToast(`✅ 已登记：${STATUS[status].label}`);
+}
+
+// ── 休假子类型选择器 ──
+function showLeaveSubtypePicker(key) {
+  const overlay = document.createElement('div');
+  overlay.className = 'status-picker-overlay';
+  overlay.id = 'leaveSubtypeOverlay';
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeLeaveSubtypePicker();
+  });
+
+  let btns = '';
+  for (const st of LEAVE_SUBTYPES) {
+    btns += `<button class="picker-btn leave" onclick="pickLeaveSubtype('${key}','${st}')">${st}</button>`;
+  }
+
+  overlay.innerHTML = `
+    <div class="status-picker">
+      <h3>选择休假类型</h3>
+      <div class="picker-btns" style="max-width:420px;">${btns}</div>
+      <button class="picker-cancel" onclick="closeLeaveSubtypePicker()">取消</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+}
+
+function closeLeaveSubtypePicker() {
+  document.getElementById('leaveSubtypeOverlay')?.remove();
+}
+
+function pickLeaveSubtype(key, subtype) {
+  closeLeaveSubtypePicker();
+  showHourPicker(key, 'leave', subtype);
+}
+
+// ── 休假/公差时长选择器 ──
+function showHourPicker(key, statusType, leaveSubtype) {
+  const overlay = document.createElement('div');
+  overlay.className = 'status-picker-overlay';
+  overlay.id = 'hourPickerOverlay';
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeHourPicker();
+  });
+
+  let hoursList, title;
+  if (statusType === 'trip') { hoursList = TRIP_HOURS; title = '公差时长'; }
+  else if (statusType === 'leave') { hoursList = LEAVE_HOURS; title = (leaveSubtype || '休假') + ' 时长'; }
+  else if (statusType === 'overtime') { hoursList = OVERTIME_HOURS; title = '超时时长'; }
+  else if (statusType === 'overtime_day') { hoursList = OVERTIME_DAY_HOURS; title = '加班时长'; }
+  else { hoursList = PRESENT_HOURS; title = '休超时假时长'; }
+  let btns = '';
+  for (const h of hoursList) {
+    let label;
+    if (h === '半天') label = statusType === 'present' ? '补休半天' : '半天';
+    else if (h === '全天') label = statusType === 'present' ? '补休全天' : '全天';
+    else label = h + 'h';
+    const clickArgs = leaveSubtype
+      ? `pickHours('${key}','${h}','${statusType}','${leaveSubtype}')`
+      : `pickHours('${key}','${h}','${statusType}')`;
+    btns += `<button class="picker-btn ${statusType}" onclick="${clickArgs}">${label}</button>`;
+  }
+
+  overlay.innerHTML = `
+    <div class="status-picker">
+      <h3>${title}</h3>
+      <div class="picker-btns" style="max-width:380px;">${btns}</div>
+      <button class="picker-cancel" onclick="closeHourPicker()">取消</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+}
+
+function closeHourPicker() {
+  document.getElementById('hourPickerOverlay')?.remove();
+}
+
+function pickHours(key, hours, statusType, leaveSubtype) {
+  closeHourPicker();
+  const data = loadData(currentPerson, ym());
+  const raw = data[key] || null;
+  data[key] = appendStatus(raw, statusType, hours, leaveSubtype);
+  saveData(currentPerson, ym(), data);
+  render();
+  const name = leaveSubtype || STATUS[statusType].label;
+  let label;
+  if (hours === '半天') label = statusType === 'present' ? `${name} 补休半天` : `${name} 半天`;
+  else if (hours === '全天') label = statusType === 'present' ? `${name} 补休全天` : `${name} 全天`;
+  else label = `${name} ${hours}h`;
+  showToast(`✅ 已登记：${label}`);
+}
+
+// ── Init ──
+function init() {
+  // 先尝试从嵌入数据恢复（适用于新设备打开含数据的 HTML）
+  const restored = restoreEmbeddedData();
+  
+  // 恢复持久化的解锁状态
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key.startsWith(STORAGE_PERSON_UNLOCKED)) {
+      const name = key.slice(STORAGE_PERSON_UNLOCKED.length);
+      unlockedPersons.add(name);
+    }
+  }
+  
+  const now = new Date();
+  currentYear = now.getFullYear();
+  currentMonth = now.getMonth() + 1;
+  currentPerson = loadCurrentPerson();
+  if (!loadPeople().length) {
+    savePeople(['本人']);
+    currentPerson = '本人';
+    saveCurrentPerson('本人');
+  }
+  if (!currentPerson) {
+    currentPerson = loadPeople()[0];
+    saveCurrentPerson(currentPerson);
+  }
+  // 如果当前身份被锁定且未解锁，切换到第一个未锁定的
+  if (!isAdmin && isPersonLocked(currentPerson) && !unlockedPersons.has(currentPerson)) {
+    const firstUnlocked = loadPeople().find(p => !isPersonLocked(p));
+    if (firstUnlocked) {
+      currentPerson = firstUnlocked;
+      saveCurrentPerson(currentPerson);
+    }
+  }
+  render();
+}
+init();
+
+// ── Render ──
+function render() {
+  const people = loadPeople();
+  const app = document.getElementById('app');
+
+  const adminBtnHtml = isAdmin
+    ? `<span class="admin-badge">👑 ${currentAdmin}</span>
+       <button class="btn-admin logged-in" onclick="doLogout()">退出管理</button>
+       <button class="btn-admin" onclick="showChangePwd()">修改密码</button>
+       <button class="btn-admin" onclick="showManageAdmins()">管理管理员</button>`
+    : `<button class="btn-admin" onclick="showLogin()">🔐 管理员登录</button>`;
+
+  const viewToggleHtml = isAdmin
+    ? `<div class="view-toggle">
+         <button class="${viewMode==='single'?'active':''}" onclick="setView('single')">单人</button>
+         <button class="${viewMode==='team'?'active':''}" onclick="setView('team')">团队</button>
+       </div>`
+    : '';
+
+  app.innerHTML = `
+    <div class="header">
+      <h1>📅 考勤日历</h1>
+      <div class="nav">
+        <button onclick="prevMonth()">◀</button>
+        <span class="month-label">${currentYear}年 ${currentMonth}月</span>
+        <button onclick="nextMonth()">▶</button>
+        <button class="btn-today" onclick="goToday()">今天</button>
+      </div>
+      ${viewToggleHtml}
+      ${adminBtnHtml}
+    </div>
+
+    <div class="person-bar">
+      <span class="label">👤 ${isAdmin ? '人员：' : '我的身份：'}</span>
+      ${isAdmin ? `
+        <div class="person-tabs" id="personTabs"></div>
+        <button class="add-person-btn" onclick="addPerson()">＋ 添加</button>
+      ` : `
+        <select class="identity-select" id="identitySelect" onchange="onIdentityChange(this.value)">
+          ${people.map(p => `<option value="${p}" ${p===currentPerson?'selected':''}>${p}${isPersonLocked(p)?' 🔒':''}</option>`).join('')}
+        </select>
+        ${isPersonLocked(currentPerson) ? `
+          ${unlockedPersons.has(currentPerson) ? `
+            <span style="font-size:11px;color:#2d8a2d;">🔓 已解锁</span>
+          ` : `
+            <span style="font-size:11px;color:#d14343;">🔒 已锁定</span>
+            <button class="add-person-btn" onclick="unlockPerson('${currentPerson.replace(/'/g,"\\'")}')" style="border-color:#4a6cf7;color:#4a6cf7;font-size:11px;">输入密码解锁</button>
+          `}
+        ` : `
+          <span style="font-size:11px;color:#999;">选择您的姓名以填写考勤</span>
+          <button class="add-person-btn" onclick="lockPerson('${currentPerson.replace(/'/g,"\\'")}')" style="border-color:#4a6cf7;color:#4a6cf7;">🔒 锁定我的身份</button>
+        `}
+      `}
+    </div>
+
+    <div class="legend">
+      <span style="color:#888;font-size:12px;">${isAdmin ? '点击日期切换：' : '点击空日期申报（填后不可改）：'}</span>
+      <div class="legend-item"><div class="legend-dot" style="background:#e6f7e6;border:2px solid #2d8a2d;"></div>休超时假</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#ffe8e8;border:2px solid #d14343;"></div>缺勤</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#fff3e0;border:2px solid #e67e22;"></div>迟到</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#e8f0fe;border:2px solid #3b6fd4;"></div>休假</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#f3e8ff;border:2px solid #7c3aed;"></div>公差</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#fff7ed;border:2px solid #ea580c;"></div>超时</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#fff0e0;border:2px solid #c2410c;"></div>加班</div>
+      ${!isAdmin ? '<div class="legend-item"><span style="font-size:10px;color:#999;">🔒 已锁定</span></div>' : ''}
+    </div>
+
+    <div class="stats" id="stats"></div>
+
+    <div class="calendar">
+      <div class="weekdays">
+        <div class="weekend-label">日</div><div>一</div><div>二</div><div>三</div><div>四</div><div>五</div><div class="weekend-label">六</div>
+      </div>
+      <div class="days" id="daysGrid"></div>
+    </div>
+
+    <div class="note-panel" id="notePanel">
+      <h3 id="noteTitle">备注</h3>
+      <textarea id="noteText" placeholder="输入备注信息..."></textarea>
+      <div class="note-btns">
+        <button class="btn-save" onclick="saveNote()">保存</button>
+        <button class="btn-clear" onclick="clearNote()">清除备注</button>
+      </div>
+    </div>
+
+    <div class="actions">
+      ${isAdmin && viewMode==='single' ? `
+        <button class="btn-danger" onclick="clearMonth()">清空本月</button>
+        <button onclick="batchSet('present')">全部休超时假</button>
+        <button onclick="batchSet('absent')">全部缺勤</button>
+      ` : ''}
+      <button class="btn-export" onclick="exportExcel()">导出 Excel</button>
+      <button onclick="exportCSV()">导出 CSV</button>
+      <button onclick="window.print()">打印</button>
+      ${isAdmin ? '<button class="btn-export" onclick="exportAllExcel()">导出全员 Excel</button>' : ''}
+      ${isAdmin ? '<button onclick="exportAllCSV()">导出全员 CSV</button>' : ''}
+      <span style="flex:1"></span>
+      <button onclick="exportFullBackup()" style="background:#10b981;color:#fff;border-color:#10b981;">💾 备份数据</button>
+      <button onclick="importFullBackup()">📥 恢复数据</button>
+      ${isAdmin ? '<button onclick="clearAllLocks()" style="background:#ef4444;color:#fff;border-color:#ef4444;">🔓 清除所有锁定</button>' : ''}
+      ${isAdmin ? '<button onclick="clearAllData()" style="background:#dc2626;color:#fff;border-color:#dc2626;">🗑 清除所有考勤数据</button>' : ''}
+      ${isAdmin ? '<button onclick="embedDataToFile()" style="background:#8b5cf6;color:#fff;border-color:#8b5cf6;">📦 嵌入数据到文件</button>' : ''}
+    </div>
+  `;
+
+  if (isAdmin) {
+    renderPersonTabs(people);
+  }
+  renderDaysGrid();
+  renderStats();
+
+  document.addEventListener('keydown', escHandler);
+}
+
+function escHandler(e) {
+  if (e.key === 'Escape') {
+    document.getElementById('notePanel')?.classList.remove('active');
+    activeDate = null;
+  }
+}
+
+function onIdentityChange(name) {
+  if (isAdmin) {
+    currentPerson = name;
+    saveCurrentPerson(name);
+    activeDate = null;
+    document.getElementById('notePanel')?.classList.remove('active');
+    render();
+    return;
+  }
+  // 非管理员：先检查目标身份是否锁定
+  if (!isPersonLocked(name) || unlockedPersons.has(name)) {
+    currentPerson = name;
+    saveCurrentPerson(name);
+    activeDate = null;
+    document.getElementById('notePanel')?.classList.remove('active');
+    render();
+  } else {
+    // 已锁定且未解锁：还原下拉框，弹出 PIN 提示
+    const sel = document.getElementById('identitySelect');
+    if (sel) sel.value = currentPerson;
+    unlockPerson(name);
+  }
+}
+
+function renderPersonTabs(people) {
+  const container = document.getElementById('personTabs');
+  if (!container) return;
+  container.innerHTML = people.map(p => `
+    <span class="person-tab ${p===currentPerson?'active':''}"
+          onclick="selectPerson('${p.replace(/'/g,"\\'")}')">
+      ${p}
+      ${isPersonLocked(p) ? `<span class="del" style="color:#f59e0b;opacity:1;" onclick="event.stopPropagation();adminResetPersonLock('${p.replace(/'/g,"\\'")}')" title="已锁定，点击重置密码">🔒</span>` : ''}
+      ${people.length > 1 ? `<span class="del" onclick="event.stopPropagation();removePerson('${p.replace(/'/g,"\\'")}')">×</span>` : ''}
+    </span>
+  `).join('');
+}
+
+function selectPerson(name) {
+  currentPerson = name;
+  saveCurrentPerson(name);
+  activeDate = null;
+  document.getElementById('notePanel')?.classList.remove('active');
+  render();
+}
+
+function addPerson() {
+  if (!isAdmin) return;
+  showModal('添加人员', '输入姓名...', (name) => {
+    if (!name.trim()) return;
+    const people = loadPeople();
+    if (people.includes(name.trim())) { showToast('该人员已存在', true); return; }
+    people.push(name.trim());
+    savePeople(people);
+    currentPerson = name.trim();
+    saveCurrentPerson(currentPerson);
+    render();
+  });
+}
+
+function removePerson(name) {
+  if (!isAdmin) return;
+  if (loadPeople().length <= 1) { showToast('至少保留一个人员', true); return; }
+  if (!confirm(`确认删除「${name}」及其所有考勤数据？`)) return;
+  const people = loadPeople().filter(p => p !== name);
+  savePeople(people);
+  const keys = Object.keys(localStorage).filter(k => k.startsWith(`att_${name}_`) || k.startsWith(`att_note_${name}_`));
+  keys.forEach(k => localStorage.removeItem(k));
+  if (currentPerson === name) {
+    currentPerson = people[0];
+    saveCurrentPerson(currentPerson);
+  }
+  render();
+}
+
+// 管理员重置人员密码
+function adminResetPersonLock(name) {
+  if (!isAdmin) return;
+  if (!isPersonLocked(name)) return;
+  if (!confirm(`「${name}」的身份已被密码锁定。\n\n确定要解除锁定吗？\n解除后该身份的密码将被清除，任何人都可以选择。`)) return;
+  removePersonLock(name);
+  showToast(`🔓 已解除「${name}」的身份锁定`);
+  render();
+}
+
+// 管理员一键清除所有锁定状态（嵌入分享前使用）
+function clearAllLocks() {
+  if (!isAdmin) return;
+  const count = loadPeople().filter(p => isPersonLocked(p)).length;
+  if (count === 0) { showToast('当前没有已锁定的身份'); return; }
+  if (!confirm(`将清除全部 ${count} 个身份的锁定密码和解锁状态。\n\n此操作不可撤销，确定继续？`)) return;
+  let cleared = 0;
+  for (let i = localStorage.length - 1; i >= 0; i--) {
+    const key = localStorage.key(i);
+    if (key.startsWith(STORAGE_PERSON_PIN) || key.startsWith(STORAGE_PERSON_UNLOCKED)) {
+      localStorage.removeItem(key);
+      cleared++;
+    }
+  }
+  unlockedPersons.clear();
+  showToast(`🔓 已清除 ${cleared} 条锁定数据`);
+  render();
+}
+
+// 管理员一键清除所有考勤填报数据（所有人员、所有月份）
+function clearAllData() {
+  if (!isAdmin) return;
+  if (!confirm('⚠️ 将清除所有人员、所有月份的考勤填报数据和备注！\n\n此操作不可撤销，确定继续？')) return;
+  let cleared = 0;
+  for (let i = localStorage.length - 1; i >= 0; i--) {
+    const key = localStorage.key(i);
+    // 匹配 att_<name>_<YYYY-MM> 和 att_note_<name>_<YYYY-MM>
+    if (/^att_[\u4e00-\u9fa5a-zA-Z0-9]+_\d{4}-\d{2}$/.test(key) ||
+        /^att_note_[\u4e00-\u9fa5a-zA-Z0-9]+_\d{4}-\d{2}$/.test(key)) {
+      localStorage.removeItem(key);
+      cleared++;
+    }
+  }
+  showToast(`🗑 已清除 ${cleared} 条考勤数据`);
+  render();
+}
+
+function setView(mode) {
+  if (!isAdmin && mode === 'team') return;
+  viewMode = mode;
+  activeDate = null;
+  document.getElementById('notePanel')?.classList.remove('active');
+  render();
+}
+
+// ── Calendar Grid ──
+function renderDaysGrid() {
+  const y = currentYear, m = currentMonth;
+  const firstDay = new Date(y, m-1, 1).getDay();
+  const daysInMonth = new Date(y, m, 0).getDate();
+  const todayStr = dateKey(new Date().getFullYear(), new Date().getMonth()+1, new Date().getDate());
+  const grid = document.getElementById('daysGrid');
+  grid.innerHTML = '';
+
+  if (viewMode === 'single') {
+    const data = loadData(currentPerson, ym());
+    const notes = loadNotes(currentPerson, ym());
+    for (let i = 0; i < firstDay; i++) grid.appendChild(createEmpty());
+    for (let d = 1; d <= daysInMonth; d++) {
+      const key = dateKey(y,m,d);
+      const raw = data[key] || null;
+      const statuses = parseStatuses(raw);
+      const hasAny = statuses.length > 0;
+      const displayLabel = getDisplayLabel(raw);
+      const hasNote = notes[key] && notes[key].trim();
+      const isWeekend = new Date(y,m-1,d).getDay()%6===0;
+      const isToday = key===todayStr;
+      const cell = document.createElement('div');
+
+      // 用第一个状态决定背景色
+      const primaryStatus = hasAny ? statuses[0].status : null;
+      let statusCls = primaryStatus ? STATUS[primaryStatus]?.cls || '' : '';
+      let cellClasses = 'day-cell' + (isWeekend?' weekend':'') + (isToday?' today':'') + (statusCls?' '+statusCls:'');
+      if (!isAdmin && hasAny) {
+        cellClasses += ' locked';
+      }
+      cell.className = cellClasses;
+
+      // 多状态：每个状态一个 badge
+      let badgesHtml = '';
+      if (hasAny) {
+        badgesHtml = statuses.map(s => {
+          const lbl = getDisplayLabel(formatStatus(s.status, s.hours, s.subtype));
+          return `<span class="status-badge">${lbl}</span>`;
+        }).join('');
+      }
+
+      let lockHtml = '';
+      if (!isAdmin && hasAny) {
+        lockHtml = '<span class="lock-icon">🔒</span>';
+      }
+      cell.innerHTML = `<span class="day-num">${d}</span>${badgesHtml}${hasNote?'<span class="note-dot"></span>':''}${lockHtml}`;
+
+      if (isAdmin) {
+        cell.addEventListener('click', () => {
+          if (hasAny) {
+            showMultiStatusEditor(key, d);
+          } else {
+            showStatusPicker(key, key > todayStr);
+          }
+        });
+      } else {
+        cell.addEventListener('click', () => {
+          if (hasAny) {
+            showToast('🔒 已申报的数据不可修改，请联系管理员', true);
+          } else if (isPersonLocked(currentPerson) && !unlockedPersons.has(currentPerson)) {
+            showToast('🔒 此身份已锁定，请先输入密码解锁', true);
+          } else {
+            showStatusPicker(key, key > todayStr);
+          }
+        });
+      }
+      cell.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        if (isAdmin) {
+          openNote(key, d);
+        } else {
+          showToast('🔒 仅管理员可编辑备注', true);
+        }
+      });
+
+      let title = hasAny ? `${d}日 - ${displayLabel}` : `${d}日 - 未登记`;
+      if (!isAdmin && hasAny) title += ' [已锁定]';
+      if (hasNote) title += `\n备注: ${notes[key]}`;
+      cell.title = title;
+      grid.appendChild(cell);
+    }
+    const total = firstDay + daysInMonth;
+    const rem = total%7===0?0:7-(total%7);
+    for (let i=0;i<rem;i++) grid.appendChild(createEmpty());
+  } else {
+    // Team view (admin only)
+    const people = loadPeople();
+    for (let i = 0; i < firstDay; i++) grid.appendChild(createEmpty());
+    for (let d = 1; d <= daysInMonth; d++) {
+      const key = dateKey(y,m,d);
+      const isWeekend = new Date(y,m-1,d).getDay()%6===0;
+      const isToday = key===todayStr;
+      const cell = document.createElement('div');
+      cell.className = 'day-cell' + (isWeekend?' weekend':'') + (isToday?' today':'');
+      let chips = '';
+      let hasNote = false;
+      for (const p of people) {
+        const pdata = loadData(p, ym());
+        const raw = pdata[key];
+        if (raw) {
+          const sts = parseStatuses(raw);
+          for (const s of sts) {
+            const lbl = getDisplayLabel(formatStatus(s.status, s.hours, s.subtype));
+            chips += `<span class="team-chip ${s.status}">${p}:${lbl}</span>`;
+          }
+        }
+        const notes = loadNotes(p, ym());
+        if (notes[key]) hasNote = true;
+      }
+      cell.innerHTML = `<span class="day-num">${d}</span><div class="team-chips">${chips}</div>${hasNote?'<span class="note-dot"></span>':''}`;
+      cell.title = `${d}日\n${chips.replace(/<[^>]+>/g,'').replace(/,/g,'\n')}`;
+      grid.appendChild(cell);
+    }
+    const total = firstDay + daysInMonth;
+    const rem = total%7===0?0:7-(total%7);
+    for (let i=0;i<rem;i++) grid.appendChild(createEmpty());
+  }
+}
+
+function createEmpty() {
+  const div = document.createElement('div');
+  div.className = 'day-cell empty';
+  return div;
+}
+
+// ── Cycle Status (admin only) ──
+function cycleStatus(key) {
+  if (!key || !isAdmin || viewMode !== 'single') return;
+  const data = loadData(currentPerson, ym());
+  const raw = data[key] || null;
+  const { status: cur, hours, subtype } = parseStatus(raw);
+  // 如果当前是休超时假/公差/休假/超时/加班，弹出时长修改器
+  if (cur === 'present' || cur === 'trip' || cur === 'leave' || cur === 'overtime' || cur === 'overtime_day') {
+    const defH = cur === 'overtime' ? '2' : (cur === 'trip' ? '1' : '全天');
+    showHourPickerForAdmin(key, cur, hours || defH, subtype || null);
+    return;
+  }
+  let next;
+  if (!cur) next = STATUS_ORDER[0];
+  else {
+    const idx = STATUS_ORDER.indexOf(cur);
+    next = idx===STATUS_ORDER.length-1 ? null : STATUS_ORDER[idx+1];
+  }
+  if (next) {
+    const defHours = next === 'overtime' ? '2' : (next === 'trip' ? '1' : '全天');
+    data[key] = (next === 'present' || next === 'trip' || next === 'leave' || next === 'overtime' || next === 'overtime_day') ? formatStatus(next, defHours) : next;
+  }
+  else delete data[key];
+  saveData(currentPerson, ym(), data);
+  render();
+}
+
+// 管理员修改休超时假/公差/休假时长
+function showHourPickerForAdmin(key, statusType, currentHours, leaveSubtype) {
+  const overlay = document.createElement('div');
+  overlay.className = 'status-picker-overlay';
+  overlay.id = 'hourPickerOverlay';
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeHourPicker();
+  });
+
+  let hoursList, title;
+  if (statusType === 'trip') { hoursList = TRIP_HOURS; title = '修改公差时长'; }
+  else if (statusType === 'leave') { hoursList = LEAVE_HOURS; title = '修改' + (leaveSubtype || '休假') + '时长'; }
+  else if (statusType === 'overtime') { hoursList = OVERTIME_HOURS; title = '修改超时时长'; }
+  else if (statusType === 'overtime_day') { hoursList = OVERTIME_DAY_HOURS; title = '修改加班时长'; }
+  else { hoursList = PRESENT_HOURS; title = '修改休超时假时长'; }
+  const curLabel = currentHours === '半天' ? (statusType === 'present' ? '补休半天' : '半天') : currentHours === '全天' ? (statusType === 'present' ? '补休全天' : '全天') : currentHours + 'h';
+  let btns = '';
+  for (const h of hoursList) {
+    let label;
+    if (h === '半天') label = statusType === 'present' ? '补休半天' : '半天';
+    else if (h === '全天') label = statusType === 'present' ? '补休全天' : '全天';
+    else label = h + 'h';
+    const activeStyle = h === currentHours ? 'background:#e6f7e6;font-weight:bold;' : '';
+    const clickArgs = leaveSubtype
+      ? `pickHours('${key}','${h}','${statusType}','${leaveSubtype}')`
+      : `pickHours('${key}','${h}','${statusType}')`;
+    btns += `<button class="picker-btn ${statusType}" style="${activeStyle}" onclick="${clickArgs}">${label}</button>`;
+  }
+
+  overlay.innerHTML = `
+    <div class="status-picker">
+      <h3>${title}（当前：${curLabel}）</h3>
+      <div class="picker-btns" style="max-width:380px;">${btns}</div>
+      <button class="picker-cancel" onclick="closeHourPicker()">取消</button>
+      <button class="picker-cancel" style="color:#d14343;" onclick="removeStatus('${key}')">清除</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+}
+
+function removeStatus(key) {
+  closeHourPicker();
+  const data = loadData(currentPerson, ym());
+  delete data[key];
+  saveData(currentPerson, ym(), data);
+  render();
+  showToast('已清除');
+}
+
+// ── Notes ──
+function openNote(key, dayNum) {
+  if (viewMode !== 'single') return;
+  activeDate = key;
+  document.getElementById('noteTitle').textContent = `${currentPerson} - ${currentYear}年${currentMonth}月${dayNum}日 备注`;
+  const notes = loadNotes(currentPerson, ym());
+  document.getElementById('noteText').value = notes[key] || '';
+  document.getElementById('notePanel').classList.add('active');
+  document.getElementById('noteText').focus();
+}
+
+function saveNote() {
+  if (!activeDate) return;
+  const notes = loadNotes(currentPerson, ym());
+  const text = document.getElementById('noteText').value.trim();
+  if (text) notes[activeDate] = text;
+  else delete notes[activeDate];
+  saveNotes(currentPerson, ym(), notes);
+  document.getElementById('notePanel').classList.remove('active');
+  activeDate = null;
+  render();
+}
+
+function clearNote() {
+  document.getElementById('noteText').value = '';
+  saveNote();
+}
+
+// ── Stats ──
+function renderStats() {
+  const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
+  const statsDiv = document.getElementById('stats');
+  if (viewMode === 'single') {
+    const data = loadData(currentPerson, ym());
+    let c = {present:0,absent:0,late:0,leave:0,trip:0,overtime:0,overtime_day:0};
+    let presentTotalH = 0, tripHours = 0, leaveHalf = 0, overtimeHours = 0;
+    let overtimeDayHalf = 0;
+    let marked = 0;
+    for (const [_,v] of Object.entries(data)) {
+      const statuses = parseStatuses(v);
+      if (statuses.length === 0) continue;
+      marked++; // 该天有登记
+      for (const s of statuses) {
+        const { status, hours } = s;
+        if (status && c.hasOwnProperty(status)) {
+          c[status]++;
+          if (status === 'present') {
+            if (!hours || hours === '全天') presentTotalH += 8;
+            else if (hours === '半天') presentTotalH += 4;
+            else presentTotalH += parseFloat(hours);
+          }
+          if (status === 'trip' && hours) {
+            tripHours += parseFloat(hours);
+          }
+          if (status === 'leave' && hours === '半天') {
+            leaveHalf++;
+          }
+          if (status === 'overtime') {
+            overtimeHours += parseFloat(hours);
+          }
+          if (status === 'overtime_day' && hours === '半天') {
+            overtimeDayHalf++;
+          }
+        }
+      }
+    }
+    const leaveTotalDays = c.leave - leaveHalf * 0.5;
+    let statsHtml = `
+      <div class="stat-item" style="background:#f0f4ff;padding:4px 10px;border-radius:6px;flex-basis:100%;">
+        📊 休超时假共 <b>${presentTotalH}</b>h | 休假共 <b>${leaveTotalDays}</b>天 | 超时共 <b>${overtimeHours}</b>h
+      </div>
+      <div class="stat-item">👤 <b>${currentPerson}</b></div>
+      <div class="stat-item">本月共 <b>${daysInMonth}</b> 天</div>
+      <div class="stat-item">已登记 <b>${marked}</b></div>
+      <div class="stat-item">休超时假 <b>${c.present}</b>天</div>
+      <div class="stat-item">缺勤 <b>${c.absent}</b></div>
+      <div class="stat-item">迟到 <b>${c.late}</b></div>
+      <div class="stat-item">休假 <b>${c.leave}</b>天${leaveHalf > 0 ? ` (含${leaveHalf}个半天)` : ''}</div>
+      <div class="stat-item">公差 <b>${c.trip}</b>天${tripHours > 0 ? ` (${tripHours}h)` : ''}</div>
+      <div class="stat-item">超时 <b>${overtimeHours}</b>h</div>
+      <div class="stat-item">加班 <b>${c.overtime_day}</b>天${overtimeDayHalf > 0 ? ` (含${overtimeDayHalf}个半天)` : ''}</div>
+    `;
+    statsDiv.innerHTML = statsHtml;
+  } else {
+    const people = loadPeople();
+    let html = `<div class="stat-item">本月共 <b>${daysInMonth}</b> 天</div>`;
+    for (const p of people) {
+      const data = loadData(p, ym());
+      let c = {present:0,absent:0,late:0,leave:0,trip:0,overtime:0,overtime_day:0};
+      for (const [_,v] of Object.entries(data)) {
+        const statuses = parseStatuses(v);
+        for (const s of statuses) {
+          if (s.status && c.hasOwnProperty(s.status)) c[s.status]++;
+        }
+      }
+      html += `<div class="stat-item">${p}: 休超时假<b>${c.present}</b> 缺勤<b>${c.absent}</b> 迟到<b>${c.late}</b> 休假<b>${c.leave}</b> 公差<b>${c.trip}</b> 加班<b>${c.overtime_day}</b></div>`;
+    }
+    statsDiv.innerHTML = html;
+  }
+}
+
+// ── Navigation ──
+function prevMonth() {
+  if (currentMonth===1) { currentMonth=12; currentYear--; }
+  else currentMonth--;
+  activeDate=null;
+  document.getElementById('notePanel')?.classList.remove('active');
+  render();
+}
+function nextMonth() {
+  if (currentMonth===12) { currentMonth=1; currentYear++; }
+  else currentMonth++;
+  activeDate=null;
+  document.getElementById('notePanel')?.classList.remove('active');
+  render();
+}
+function goToday() {
+  const now = new Date();
+  currentYear = now.getFullYear();
+  currentMonth = now.getMonth()+1;
+  activeDate=null;
+  document.getElementById('notePanel')?.classList.remove('active');
+  render();
+}
+
+// ── Batch / Clear (admin only) ──
+function clearMonth() {
+  if (!isAdmin) return;
+  if (!confirm(`确认清空「${currentPerson}」${currentYear}年${currentMonth}月的考勤数据？`)) return;
+  localStorage.removeItem(storageKey(currentPerson, ym()));
+  localStorage.removeItem(noteKey(currentPerson, ym()));
+  activeDate=null;
+  document.getElementById('notePanel')?.classList.remove('active');
+  render();
+}
+
+function batchSet(status) {
+  if (!isAdmin) return;
+  if (!confirm(`确认将「${currentPerson}」${currentYear}年${currentMonth}月全部设为「${STATUS[status].label}」？`)) return;
+  const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
+  const data = {};
+  const defHours = status === 'overtime' ? '2' : '全天';
+  const val = (status === 'present' || status === 'trip' || status === 'leave' || status === 'overtime' || status === 'overtime_day') ? formatStatus(status, defHours) : status;
+  for (let d=1; d<=daysInMonth; d++) data[dateKey(currentYear, currentMonth, d)] = val;
+  saveData(currentPerson, ym(), data);
+  render();
+}
+
+// ── 导出汇总计算 ──
+function calcSummary(person, ym) {
+  const data = loadData(person, ym);
+  let count = 0, presentH = 0, leaveDays = 0, leaveHalf = 0, overtimeH = 0;
+  let overtimeDayDays = 0, overtimeDayHalf = 0;
+  for (const [_, v] of Object.entries(data)) {
+    const statuses = parseStatuses(v);
+    if (statuses.length === 0) continue;
+    count++;
+    for (const s of statuses) {
+      const { status, hours } = s;
+      if (status === 'present') {
+        if (!hours || hours === '全天') presentH += 8;
+        else if (hours === '半天') presentH += 4;
+        else presentH += parseFloat(hours);
+      }
+      if (status === 'leave') {
+        leaveDays++;
+        if (hours === '半天') leaveHalf++;
+      }
+      if (status === 'overtime') overtimeH += parseFloat(hours);
+      if (status === 'overtime_day') {
+        overtimeDayDays++;
+        if (hours === '半天') overtimeDayHalf++;
+      }
+    }
+  }
+  return {
+    count, presentH,
+    leaveDays: leaveDays - leaveHalf * 0.5,
+    overtimeH,
+    overtimeDayDays: overtimeDayDays - overtimeDayHalf * 0.5
+  };
+}
+
+// ── Export ──
+function exportCSV() {
+  const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
+  const data = loadData(currentPerson, ym());
+  const notes = loadNotes(currentPerson, ym());
+  const weekNames = ['日','一','二','三','四','五','六'];
+  let csv = `人员: ${currentPerson}\n日期,星期,状态,备注\n`;
+  for (let d=1; d<=daysInMonth; d++) {
+    const key = dateKey(currentYear, currentMonth, d);
+    const dow = new Date(currentYear, currentMonth-1, d).getDay();
+    const status = data[key] ? getDisplayLabel(data[key]) : '';
+    const note = (notes[key]||'').replace(/"/g,'""');
+    csv += `${currentMonth}/${d},星期${weekNames[dow]},${status},"${note}"\n`;
+  }
+  const s = calcSummary(currentPerson, ym());
+  csv += `\n,,\n`;
+  csv += `汇总,,,\n`;
+  csv += `休超时假总时长,,${s.presentH}h,\n`;
+  csv += `休假总天数,,${s.leaveDays}天,\\n`;
+  csv += `超时总时长,,${s.overtimeH}h,\n`;
+  csv += `加班总天数,,${s.overtimeDayDays}天,\n`;
+  downloadCSV(csv, `考勤_${currentPerson}_${currentYear}年${currentMonth}月.csv`);
+}
+
+function exportAllCSV() {
+  if (!isAdmin) return;
+  const people = loadPeople();
+  const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
+  const weekNames = ['日','一','二','三','四','五','六'];
+  let csv = '日期,星期,' + people.join(',') + '\n';
+  for (let d=1; d<=daysInMonth; d++) {
+    const key = dateKey(currentYear, currentMonth, d);
+    const dow = new Date(currentYear, currentMonth-1, d).getDay();
+    let row = `${currentMonth}/${d},星期${weekNames[dow]}`;
+    for (const p of people) {
+      const data = loadData(p, ym());
+      const status = data[key] ? getDisplayLabel(data[key]) : '';
+      row += `,${status}`;
+    }
+    csv += row + '\n';
+  }
+  // 汇总行
+  csv += `\n汇总,,`;
+  for (const p of people) { csv += `,`; }
+  csv += `\n休超时假(h),,`;
+  for (const p of people) { const s = calcSummary(p, ym()); csv += `,${s.presentH}`; }
+  csv += `\n休假(天),,`;
+  for (const p of people) { const s = calcSummary(p, ym()); csv += `,${s.leaveDays}`; }
+  csv += `\n超时(h),,`;
+  for (const p of people) { const s = calcSummary(p, ym()); csv += `,${s.overtimeH}`; }
+  csv += '\n';
+  csv += `加班(天),,`;
+  for (const p of people) { const s = calcSummary(p, ym()); csv += `,${s.overtimeDayDays}`; }
+  csv += '\n';
+  downloadCSV(csv, `考勤_全员_${currentYear}年${currentMonth}月.csv`);
+}
+
+function downloadCSV(csv, filename) {
+  const BOM = '\uFEFF';
+  const blob = new Blob([BOM+csv], {type:'text/csv;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ── Excel Export (SheetJS) ──
+function exportExcel() {
+  const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
+  const data = loadData(currentPerson, ym());
+  const notes = loadNotes(currentPerson, ym());
+  const weekNames = ['日','一','二','三','四','五','六'];
+
+  const allRows = [
+    [`${currentPerson} - ${currentYear}年${currentMonth}月 考勤记录`],
+    [],
+    ['日期', '星期', '状态', '备注']
+  ];
+  for (let d = 1; d <= daysInMonth; d++) {
+    const key = dateKey(currentYear, currentMonth, d);
+    const dow = new Date(currentYear, currentMonth - 1, d).getDay();
+    const status = data[key] ? getDisplayLabel(data[key]) : '';
+    const note = notes[key] || '';
+    allRows.push([
+      `${currentMonth}/${d}`,
+      `星期${weekNames[dow]}`,
+      status,
+      note
+    ]);
+  }
+  // 汇总
+  const s = calcSummary(currentPerson, ym());
+  allRows.push([]);
+  allRows.push(['汇总', '', '', '']);
+  allRows.push(['休超时假总时长', '', `${s.presentH}h`, '']);
+  allRows.push(['休假总天数', '', `${s.leaveDays}天`, '']);
+  allRows.push(['超时总时长', '', `${s.overtimeH}h`, '']);
+  allRows.push(['加班总天数', '', `${s.overtimeDayDays}天`, '']);
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(allRows);
+  ws['!cols'] = [{wch: 10}, {wch: 10}, {wch: 10}, {wch: 30}];
+  ws['!merges'] = [{s: {r: 0, c: 0}, e: {r: 0, c: 3}}];
+
+  XLSX.utils.book_append_sheet(wb, ws, '考勤记录');
+  XLSX.writeFile(wb, `考勤_${currentPerson}_${currentYear}年${currentMonth}月.xlsx`);
+  showToast('✅ Excel 已导出');
+}
+
+function exportAllExcel() {
+  if (!isAdmin) return;
+  const people = loadPeople();
+  const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
+  const weekNames = ['日','一','二','三','四','五','六'];
+
+  const header = ['日期', '星期', ...people];
+  const allRows = [
+    [`全员考勤 - ${currentYear}年${currentMonth}月`],
+    [],
+    header
+  ];
+  for (let d = 1; d <= daysInMonth; d++) {
+    const key = dateKey(currentYear, currentMonth, d);
+    const dow = new Date(currentYear, currentMonth - 1, d).getDay();
+    const row = [`${currentMonth}/${d}`, `星期${weekNames[dow]}`];
+    for (const p of people) {
+      const data = loadData(p, ym());
+      const status = data[key] ? getDisplayLabel(data[key]) : '';
+      row.push(status);
+    }
+    allRows.push(row);
+  }
+  // 汇总行
+  allRows.push([]);
+  const sumRowH = ['休超时假(h)', ''];
+  const sumRowL = ['休假(天)', ''];
+  const sumRowO = ['超时(h)', ''];
+  const sumRowOD = ['加班(天)', ''];
+  for (const p of people) {
+    const s = calcSummary(p, ym());
+    sumRowH.push(s.presentH);
+    sumRowL.push(s.leaveDays);
+    sumRowO.push(s.overtimeH);
+    sumRowOD.push(s.overtimeDayDays);
+  }
+  allRows.push(sumRowH);
+  allRows.push(sumRowL);
+  allRows.push(sumRowO);
+  allRows.push(sumRowOD);
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(allRows);
+
+  // Column widths
+  const colWidths = [{wch: 10}, {wch: 10}];
+  for (const p of people) colWidths.push({wch: 10});
+  ws['!cols'] = colWidths;
+
+  // Merge title row
+  ws['!merges'] = [{s: {r: 0, c: 0}, e: {r: 0, c: people.length + 1}}];
+
+  XLSX.utils.book_append_sheet(wb, ws, '全员考勤');
+  XLSX.writeFile(wb, `考勤_全员_${currentYear}年${currentMonth}月.xlsx`);
+  showToast('✅ 全员 Excel 已导出');
+}
+
+// Keyboard shortcuts
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName==='TEXTAREA' || e.target.tagName==='INPUT' || e.target.tagName==='SELECT') return;
+  if (e.key==='ArrowLeft') prevMonth();
+  if (e.key==='ArrowRight') nextMonth();
+  if (e.key==='t') goToday();
+});
+
+// ═══════════════════════════════════════════
+//  数据备份 / 恢复 / 嵌入（解决分享后数据丢失）
+// ═══════════════════════════════════════════
+
+// 导出所有 localStorage 数据为 JSON 文件
+function exportFullBackup() {
+  const allData = {};
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if ((key.startsWith('att_') || key.startsWith('attendance_')) && key !== STORAGE_PWD) {
+      allData[key] = localStorage.getItem(key);
+    }
+  }
+  const json = JSON.stringify(allData, null, 2);
+  const blob = new Blob(['\uFEFF' + json], {type: 'application/json;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `考勤数据备份_${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('✅ 数据备份已下载');
+}
+
+// 从 JSON 文件恢复数据
+function importFullBackup() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json';
+  input.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const allData = JSON.parse(ev.target.result);
+        let count = 0;
+        for (const [key, value] of Object.entries(allData)) {
+          if (key.startsWith('att_') || key.startsWith('attendance_')) {
+            localStorage.setItem(key, value);
+            count++;
+          }
+        }
+        // 重新读取人员列表和当前人物
+        const people = loadPeople();
+        if (people.length > 0 && !people.includes(currentPerson)) {
+          currentPerson = people[0];
+          saveCurrentPerson(currentPerson);
+        }
+        showToast(`✅ 已恢复 ${count} 条数据，刷新中...`);
+        setTimeout(() => {
+          location.reload();
+        }, 800);
+      } catch (err) {
+        showToast('❌ 文件格式错误，请选择正确的备份文件', true);
+      }
+    };
+    reader.readAsText(file, 'UTF-8');
+  });
+  input.click();
+}
+
+// 将当前数据嵌入 HTML 文件本身（下载一个带数据的新 HTML）
+function embedDataToFile() {
+  if (!isAdmin) return;
+  if (!confirm('将当前所有数据（人员名单 + 各月考勤数据）嵌入到此 HTML 文件中。\n\n⚠️ 嵌入前会自动清除所有锁定密码，确保分享的文件是干净的。\n\n确认继续？')) return;
+
+  // 先清除所有 PIN 和解锁状态
+  const keysToRemove = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k.startsWith(STORAGE_PERSON_PIN) || k.startsWith(STORAGE_PERSON_UNLOCKED)) {
+      keysToRemove.push(k);
+    }
+  }
+  keysToRemove.forEach(k => localStorage.removeItem(k));
+  unlockedPersons.clear();
+
+  // 收集数据（PIN 已清除，嵌入数据不带密码）
+  const allData = {};
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if ((key.startsWith('att_') || key.startsWith('attendance_')) && key !== STORAGE_PWD) {
+      allData[key] = localStorage.getItem(key);
+    }
+  }
+
+  // 先从 DOM 中移除旧的嵌入数据，确保 outerHTML 不含老数据
+  const oldEmbed = document.getElementById('embedded-data');
+  if (oldEmbed) oldEmbed.remove();
+
+  // 获取当前 HTML 源码（此时已不含旧嵌入数据）
+  let html = document.documentElement.outerHTML;
+
+  // 在 <body> 之后插入嵌入数据（确保 init() 执行前已解析）
+  const embeddedScript = '<script id="embedded-data" type="application/json">' +
+    JSON.stringify(allData) + '</scr' + 'ipt>\n';
+  html = html.replace('<body>', '<body>\n' + embeddedScript);
+
+  // 下载
+  const blob = new Blob(['\uFEFF' + '<!DOCTYPE html>\n' + html], {type: 'text/html;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `考勤日历_含数据_${new Date().toISOString().slice(0,10)}.html`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('✅ 含数据的 HTML 文件已下载，可直接分享！');
+}
+
+// 初始化时检查是否有嵌入数据，有则恢复到 localStorage
+function restoreEmbeddedData() {
+  const embeddedEl = document.getElementById('embedded-data');
+  if (!embeddedEl) return false;
+  try {
+    const allData = JSON.parse(embeddedEl.textContent);
+    if (!allData || Object.keys(allData).length === 0) return false;
+    // 恢复考勤数据，但始终跳过 PIN/解锁/管理员密码（私人设备数据）
+    let count = 0, skipped = 0;
+    for (const [key, value] of Object.entries(allData)) {
+      if (key.startsWith(STORAGE_PERSON_PIN) || key.startsWith(STORAGE_PERSON_UNLOCKED) || key === STORAGE_PWD) {
+        skipped++;
+        continue;
+      }
+      if (localStorage.getItem(key) === null) {
+        localStorage.setItem(key, value);
+        count++;
+      }
+    }
+    console.log('📦 从嵌入数据恢复了 ' + count + ' 条记录（跳过 ' + skipped + ' 条私人数据）');
+    return true;
+  } catch (e) {
+    console.warn('嵌入数据解析失败', e);
+    return false;
+  }
+}
+</script>
+</body>
+</html>
