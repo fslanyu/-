@@ -480,7 +480,7 @@ if (_SB) {
   }
 
   // 延迟安装 init 覆写（等第二个 script 块的 init 定义好）
-  window.addEventListener('DOMContentLoaded', () => {
+  setTimeout(() => {
     const _orig_init = init;
     init = async function() {
       try { await _loadAll(); } catch(e) { console.error('Supabase load error:', e); }
