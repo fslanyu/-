@@ -481,11 +481,14 @@ if (_SB) {
 
   // 延迟安装 init 覆写（等第二个 script 块的 init 定义好）
   setTimeout(() => {
+    console.log('🔧 setTimeout fired, init defined:', typeof init);
     const _orig_init = init;
     init = async function() {
-      try { await _loadAll(); } catch(e) { console.error('Supabase load error:', e); }
+      console.log('🔧 init override called');
+      try { await _loadAll(); console.log('🔧 _loadAll done, _C.people:', _C.people); } catch(e) { console.error('Supabase load error:', e); }
       _orig_init();
       _injectOverrides();
+      console.log('🔧 _injectOverrides done, loadPeople():', loadPeople());
       // 加载当前月份云端数据
       setTimeout(async () => {
         if (currentPerson && currentYear && currentMonth) {
