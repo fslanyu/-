@@ -360,9 +360,10 @@ if (_SB) {
     }); if (!r.ok) throw new Error(`${p}: ${r.status}`); return r.json();
   }
   async function _sPOST(t, b) {
-    await fetch(`${SUPABASE_URL}/rest/v1/${t}`, {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/${t}`, {
       method: 'POST', headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`,
         'Content-Type': 'application/json', Prefer: 'return=minimal' }, body: JSON.stringify(b) });
+    if (!r.ok) throw new Error(`POST ${t}: ${r.status}`);
   }
   async function _sPATCH(t, m, b) {
     await fetch(`${SUPABASE_URL}/rest/v1/${t}?${m}`, {
@@ -402,7 +403,19 @@ if (_SB) {
 
     const orig_loadData = loadData;
     loadData = function(person, ym) {
-      return _C.dataCache[`${person}|${ym}`] || orig_loadData(person, ym);
+      const ck = `${person}|${ym}`;
+      if (_C.dataCache[ck]) return _C.dataCache[ck];
+      // 触发 Supabase 懒加载
+      (async () => {
+        try {
+          const enc = encodeURIComponent;
+          const rows = await _sGET(`attendance?select=day_key,status_data&person=eq.${enc(person)}&year_month=eq.${ym}`);
+          const d = {}; for (const r of rows) d[r.day_key] = r.status_data;
+          _C.dataCache[ck] = d;
+          if (currentPerson === person && currentYear+'-'+String(currentMonth).padStart(2,'0') === ym) render();
+        } catch(e) { /* 静默失败，用 localStorage 兜底 */ }
+      })();
+      return orig_loadData(person, ym);
     };
     const orig_saveData = saveData;
     saveData = function(person, ym, data) {
@@ -423,7 +436,18 @@ if (_SB) {
 
     const orig_loadNotes = loadNotes;
     loadNotes = function(person, ym) {
-      return _C.noteCache[`${person}|${ym}`] || orig_loadNotes(person, ym);
+      const ck = `${person}|${ym}`;
+      if (_C.noteCache[ck]) return _C.noteCache[ck];
+      (async () => {
+        try {
+          const enc = encodeURIComponent;
+          const rows = await _sGET(`notes?select=day_key,note&person=eq.${enc(person)}&year_month=eq.${ym}`);
+          const d = {}; for (const r of rows) d[r.day_key] = r.note;
+          _C.noteCache[ck] = d;
+          if (currentPerson === person && currentYear+'-'+String(currentMonth).padStart(2,'0') === ym) render();
+        } catch(e) {}
+      })();
+      return orig_loadNotes(person, ym);
     };
     const orig_saveNotes = saveNotes;
     saveNotes = function(person, ym, data) {
