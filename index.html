@@ -147,8 +147,8 @@ body {
 .day-cell.empty:hover { box-shadow: none; }
 .day-cell.today { box-shadow: inset 0 0 0 2px #4a6cf7; }
 .day-cell.weekend { background: #fdf8f7; }
-.day-cell.locked { cursor: not-allowed; }
-.day-cell.locked:hover { box-shadow: none; }
+.day-cell.readonly-view { cursor: default !important; }
+.day-cell.readonly-view:hover { box-shadow: none !important; }
 .day-num {
   font-size: 13px; font-weight: 500; color: #333;
   line-height: 1;
@@ -536,12 +536,17 @@ if (_SB) {
       setInterval(async () => {
         if (!currentPerson || !currentYear || !currentMonth) return;
         const ym = currentYear + '-' + String(currentMonth).padStart(2,'0'), enc = encodeURIComponent;
-        try {
-          const rows = await _sGET(`attendance?select=day_key,status_data&person=eq.${enc(currentPerson)}&year_month=eq.${ym}`);
-          const nd = {}; for (const r of rows) nd[r.day_key] = r.status_data;
-          const ck = `${currentPerson}|${ym}`;
-          if (JSON.stringify(nd) !== JSON.stringify(_C.dataCache[ck] || {})) { _C.dataCache[ck] = nd; render(); }
-        } catch(e) {}
+        // 轮询当前身份 + 查看目标的数据
+        const pollPeople = viewTarget ? [currentPerson, viewTarget] : [currentPerson];
+        for (const p of pollPeople) {
+          try {
+            const rows = await _sGET(`attendance?select=day_key,status_data&person=eq.${enc(p)}&year_month=eq.${ym}`);
+            const nd = {}; for (const r of rows) nd[r.day_key] = r.status_data;
+            const ck = `${p}|${ym}`;
+            if (JSON.stringify(nd) !== JSON.stringify(_C.dataCache[ck] || {})) { _C.dataCache[ck] = nd; }
+          } catch(e) {}
+        }
+        render();
       }, 10000);
     };
     init();  // 立即调用覆写后的 init
@@ -591,6 +596,7 @@ function saveAdminUsers(users) {
 }
 
 let currentYear, currentMonth, currentPerson, viewMode = 'single';
+let viewTarget = null;  // 非管理员查看目标（person名），null=看自己
 let activeDate = null;
 let modalCb = null;
 let isAdmin = false;
@@ -837,6 +843,7 @@ function doLogout() {
   isAdmin = false;
   currentAdmin = '';
   viewMode = 'single';
+  viewTarget = null;
   if (currentPerson) saveCurrentPerson(currentPerson);
   showToast('已退出管理模式');
   render();
@@ -1313,11 +1320,18 @@ function render() {
           <span style="font-size:11px;color:#999;">选择您的姓名以填写考勤</span>
           <button class="add-person-btn" onclick="lockPerson('${currentPerson.replace(/'/g,"\\'")}')" style="border-color:#4a6cf7;color:#4a6cf7;">🔒 锁定我的身份</button>
         `}
+        <span style="color:#ccc;margin:0 4px;">|</span>
+        <span style="font-size:12px;color:#888;">查看他人：</span>
+        <select class="identity-select" id="viewSelect" onchange="onViewChange(this.value)" style="min-width:100px;">
+          <option value="">看自己</option>
+          ${people.filter(p => p !== currentPerson || (viewTarget && viewTarget !== currentPerson)).map(p => `<option value="${p}" ${p===viewTarget?'selected':''}>${p}${isPersonLocked(p)?' 🔒':''}</option>`).join('')}
+        </select>
+        ${viewTarget ? `<span style="font-size:11px;color:#e67e22;">👁 只读查看</span>` : ''}
       `}
     </div>
 
     <div class="legend">
-      <span style="color:#888;font-size:12px;">${isAdmin ? '点击日期切换：' : '点击空日期申报（填后不可改）：'}</span>
+      <span style="color:#888;font-size:12px;">${isAdmin ? '点击日期切换：' : (viewTarget ? '👁 只读查看 ' + viewTarget + ' 的考勤' : '点击日期申报（可叠加多种状态）：')}</span>
       <div class="legend-item"><div class="legend-dot" style="background:#e6f7e6;border:2px solid #2d8a2d;"></div>休超时假</div>
       <div class="legend-item"><div class="legend-dot" style="background:#ffe8e8;border:2px solid #d14343;"></div>缺勤</div>
       <div class="legend-item"><div class="legend-dot" style="background:#fff3e0;border:2px solid #e67e22;"></div>迟到</div>
@@ -1325,7 +1339,6 @@ function render() {
       <div class="legend-item"><div class="legend-dot" style="background:#f3e8ff;border:2px solid #7c3aed;"></div>公差</div>
       <div class="legend-item"><div class="legend-dot" style="background:#fff7ed;border:2px solid #ea580c;"></div>超时</div>
       <div class="legend-item"><div class="legend-dot" style="background:#fff0e0;border:2px solid #c2410c;"></div>加班</div>
-      ${!isAdmin ? '<div class="legend-item"><span style="font-size:10px;color:#999;">🔒 已锁定</span></div>' : ''}
     </div>
 
     <div class="stats" id="stats"></div>
@@ -1395,6 +1408,8 @@ function onIdentityChange(name) {
   if (!isPersonLocked(name) || unlockedPersons.has(name)) {
     currentPerson = name;
     saveCurrentPerson(name);
+    // 切换身份时自动看自己
+    viewTarget = null;
     activeDate = null;
     document.getElementById('notePanel')?.classList.remove('active');
     render();
@@ -1404,6 +1419,13 @@ function onIdentityChange(name) {
     if (sel) sel.value = currentPerson;
     unlockPerson(name);
   }
+}
+
+function onViewChange(name) {
+  viewTarget = name || null;
+  activeDate = null;
+  document.getElementById('notePanel')?.classList.remove('active');
+  render();
 }
 
 function renderPersonTabs(people) {
@@ -1422,6 +1444,7 @@ function renderPersonTabs(people) {
 function selectPerson(name) {
   currentPerson = name;
   saveCurrentPerson(name);
+  viewTarget = null;
   activeDate = null;
   document.getElementById('notePanel')?.classList.remove('active');
   render();
@@ -1506,6 +1529,7 @@ function clearAllData() {
 function setView(mode) {
   if (!isAdmin && mode === 'team') return;
   viewMode = mode;
+  viewTarget = null;
   activeDate = null;
   document.getElementById('notePanel')?.classList.remove('active');
   render();
@@ -1520,9 +1544,13 @@ function renderDaysGrid() {
   const grid = document.getElementById('daysGrid');
   grid.innerHTML = '';
 
+  // 非管理员查看他人时用 viewTarget，否则用 currentPerson
+  const displayPerson = (!isAdmin && viewTarget) ? viewTarget : currentPerson;
+  const isReadOnly = !isAdmin && viewTarget && viewTarget !== currentPerson;
+
   if (viewMode === 'single') {
-    const data = loadData(currentPerson, ym());
-    const notes = loadNotes(currentPerson, ym());
+    const data = loadData(displayPerson, ym());
+    const notes = loadNotes(displayPerson, ym());
     for (let i = 0; i < firstDay; i++) grid.appendChild(createEmpty());
     for (let d = 1; d <= daysInMonth; d++) {
       const key = dateKey(y,m,d);
@@ -1539,8 +1567,9 @@ function renderDaysGrid() {
       const primaryStatus = hasAny ? statuses[0].status : null;
       let statusCls = primaryStatus ? STATUS[primaryStatus]?.cls || '' : '';
       let cellClasses = 'day-cell' + (isWeekend?' weekend':'') + (isToday?' today':'') + (statusCls?' '+statusCls:'');
-      if (!isAdmin && hasAny) {
-        cellClasses += ' locked';
+      // 只读模式：视觉上提示不可编辑
+      if (isReadOnly && hasAny) {
+        cellClasses += ' readonly-view';
       }
       cell.className = cellClasses;
 
@@ -1554,8 +1583,8 @@ function renderDaysGrid() {
       }
 
       let lockHtml = '';
-      if (!isAdmin && hasAny) {
-        lockHtml = '<span class="lock-icon">🔒</span>';
+      if (isReadOnly) {
+        lockHtml = '<span class="lock-icon" style="opacity:0.4;">👁</span>';
       }
       cell.innerHTML = `<span class="day-num">${d}</span>${badgesHtml}${hasNote?'<span class="note-dot"></span>':''}${lockHtml}`;
 
@@ -1567,12 +1596,16 @@ function renderDaysGrid() {
             showStatusPicker(key, key > todayStr);
           }
         });
+      } else if (isReadOnly) {
+        // 只读查看：不可点击编辑
+        cell.style.cursor = 'default';
+        cell.title = hasAny ? `${d}日 - ${displayLabel}（👁 只读查看）` : `${d}日 - 未登记（👁 只读查看）`;
       } else {
+        // 自己的日历，可编辑
         cell.addEventListener('click', () => {
           if (isPersonLocked(currentPerson) && !unlockedPersons.has(currentPerson)) {
             showToast('🔒 此身份已锁定，请先输入密码解锁', true);
           } else {
-            // 已有数据：追加新状态（不覆盖）；无数据：正常填报
             showStatusPicker(key, key > todayStr);
           }
         });
@@ -1581,13 +1614,15 @@ function renderDaysGrid() {
         e.preventDefault();
         if (isAdmin) {
           openNote(key, d);
+        } else if (isReadOnly) {
+          showToast('👁 只读模式，不可编辑备注', true);
         } else {
           showToast('🔒 仅管理员可编辑备注', true);
         }
       });
 
       let title = hasAny ? `${d}日 - ${displayLabel}` : `${d}日 - 未登记`;
-      if (!isAdmin && hasAny) title += ' [已锁定]';
+      if (isReadOnly) title += ' [只读]';
       if (hasNote) title += `\n备注: ${notes[key]}`;
       cell.title = title;
       grid.appendChild(cell);
@@ -1715,9 +1750,10 @@ function removeStatus(key) {
 // ── Notes ──
 function openNote(key, dayNum) {
   if (viewMode !== 'single') return;
+  const displayPerson = (!isAdmin && viewTarget) ? viewTarget : currentPerson;
   activeDate = key;
-  document.getElementById('noteTitle').textContent = `${currentPerson} - ${currentYear}年${currentMonth}月${dayNum}日 备注`;
-  const notes = loadNotes(currentPerson, ym());
+  document.getElementById('noteTitle').textContent = `${displayPerson} - ${currentYear}年${currentMonth}月${dayNum}日 备注`;
+  const notes = loadNotes(displayPerson, ym());
   document.getElementById('noteText').value = notes[key] || '';
   document.getElementById('notePanel').classList.add('active');
   document.getElementById('noteText').focus();
@@ -1742,10 +1778,11 @@ function clearNote() {
 
 // ── Stats ──
 function renderStats() {
+  const displayPerson = (!isAdmin && viewTarget) ? viewTarget : currentPerson;
   const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
   const statsDiv = document.getElementById('stats');
   if (viewMode === 'single') {
-    const data = loadData(currentPerson, ym());
+    const data = loadData(displayPerson, ym());
     let c = {present:0,absent:0,late:0,leave:0,trip:0,overtime:0,overtime_day:0};
     let presentTotalH = 0, tripHours = 0, leaveHalf = 0, overtimeHours = 0;
     let overtimeDayHalf = 0;
@@ -1783,7 +1820,7 @@ function renderStats() {
       <div class="stat-item" style="background:#f0f4ff;padding:4px 10px;border-radius:6px;flex-basis:100%;">
         📊 休超时假共 <b>${presentTotalH}</b>h | 休假共 <b>${leaveTotalDays}</b>天 | 超时共 <b>${overtimeHours}</b>h
       </div>
-      <div class="stat-item">👤 <b>${currentPerson}</b></div>
+      <div class="stat-item">👤 <b>${displayPerson}</b>${viewTarget ? ' <span style="font-size:10px;color:#e67e22;">(👁只读)</span>' : ''}</div>
       <div class="stat-item">本月共 <b>${daysInMonth}</b> 天</div>
       <div class="stat-item">已登记 <b>${marked}</b></div>
       <div class="stat-item">休超时假 <b>${c.present}</b>天</div>
@@ -1817,14 +1854,14 @@ function renderStats() {
 function prevMonth() {
   if (currentMonth===1) { currentMonth=12; currentYear--; }
   else currentMonth--;
-  activeDate=null;
+  activeDate=null; viewTarget=null;
   document.getElementById('notePanel')?.classList.remove('active');
   render();
 }
 function nextMonth() {
   if (currentMonth===12) { currentMonth=1; currentYear++; }
   else currentMonth++;
-  activeDate=null;
+  activeDate=null; viewTarget=null;
   document.getElementById('notePanel')?.classList.remove('active');
   render();
 }
@@ -1832,7 +1869,7 @@ function goToday() {
   const now = new Date();
   currentYear = now.getFullYear();
   currentMonth = now.getMonth()+1;
-  activeDate=null;
+  activeDate=null; viewTarget=null;
   document.getElementById('notePanel')?.classList.remove('active');
   render();
 }
