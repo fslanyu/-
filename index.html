@@ -724,9 +724,26 @@ function formatMultiStatus(statusObjs) {
   }).join(MULTI_SEP);
 }
 
-// 向已有数据追加状态（同类型替换，不同类型叠加）
+// 互斥状态：缺勤和加班不能与其他状态共存
+const EXCLUSIVE_STATUSES = ['absent', 'overtime_day'];
+
+// 向已有数据追加状态
+// - 缺勤/加班会清除所有其他状态，只保留自己
+// - 已有缺勤/加班时，不能再叠加其他状态
 function appendStatus(raw, statusType, hours, subtype) {
   const existing = parseStatuses(raw);
+  const isNewExclusive = EXCLUSIVE_STATUSES.includes(statusType);
+  const hasExistingExclusive = existing.some(s => EXCLUSIVE_STATUSES.includes(s.status));
+
+  if (isNewExclusive) {
+    // 缺勤或加班：清除一切，只保留自己
+    return formatMultiStatus([{ status: statusType, hours: hours || null, subtype: subtype || null }]);
+  }
+  if (hasExistingExclusive) {
+    // 已有缺勤或加班：不允许再叠加其他状态，返回 null 表示拒绝
+    return null;
+  }
+  // 正常叠加：同类型替换，不同类型共存
   const filtered = existing.filter(s => s.status !== statusType);
   filtered.push({ status: statusType, hours: hours || null, subtype: subtype || null });
   return formatMultiStatus(filtered);
@@ -1134,7 +1151,12 @@ function pickStatus(key, status) {
   }
   const data = loadData(currentPerson, ym());
   const raw = data[key] || null;
-  data[key] = appendStatus(raw, status, null);
+  const result = appendStatus(raw, status, null);
+  if (result === null) {
+    showToast('⚠️ 该日期已有缺勤或加班，不能再叠加其他状态', true);
+    return;
+  }
+  data[key] = result;
   saveData(currentPerson, ym(), data);
   render();
   showToast(`✅ 已登记：${STATUS[status].label}`);
@@ -1218,7 +1240,12 @@ function pickHours(key, hours, statusType, leaveSubtype) {
   closeHourPicker();
   const data = loadData(currentPerson, ym());
   const raw = data[key] || null;
-  data[key] = appendStatus(raw, statusType, hours, leaveSubtype);
+  const result = appendStatus(raw, statusType, hours, leaveSubtype);
+  if (result === null) {
+    showToast('⚠️ 该日期已有缺勤或加班，不能再叠加其他状态', true);
+    return;
+  }
+  data[key] = result;
   saveData(currentPerson, ym(), data);
   render();
   const name = leaveSubtype || STATUS[statusType].label;
