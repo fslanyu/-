@@ -2,370 +2,499 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="考勤日历">
+<meta name="theme-color" content="#4a6cf7">
+<link rel="manifest" href="data:application/json;base64,eyJuYW1lIjogIuiAg+WLpOaXpeWOhiIsICJzaG9ydF9uYW1lIjogIuiAg+WLpCIsICJzdGFydF91cmwiOiAiLiIsICJkaXNwbGF5IjogInN0YW5kYWxvbmUiLCAiYmFja2dyb3VuZF9jb2xvciI6ICIjZjBmMmY1IiwgInRoZW1lX2NvbG9yIjogIiM0YTZjZjciLCAiaWNvbnMiOiBbeyJzcmMiOiAiZGF0YTppbWFnZS9zdmcreG1sLCUzQ3N2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCAxMDAgMTAwJyUzRSUzQ3JlY3Qgd2lkdGg9JzEwMCcgaGVpZ2h0PScxMDAnIHJ4PScyMCcgZmlsbD0nJTIzNGE2Y2Y3Jy8lM0UlM0N0ZXh0IHg9JzUwJyB5PSc2OCcgZm9udC1zaXplPSc1NicgdGV4dC1hbmNob3I9J21pZGRsZScgZmlsbD0nd2hpdGUnJTNF8J+ThSUzQy90ZXh0JTNFJTNDL3N2ZyUzRSIsICJzaXplcyI6ICIxMDB4MTAwIiwgInR5cGUiOiAiaW1hZ2Uvc3ZnK3htbCJ9XX0=">
 <title>考勤日历 - 多人版</title>
 <style>
+/* ═══ H5 移动端优先考勤日历 ═══ */
+:root {
+  --primary: #4a6cf7;
+  --primary-dark: #3b5de7;
+  --danger: #d14343;
+  --warning: #e67e22;
+  --success: #2d8a2d;
+  --purple: #7c3aed;
+  --orange: #ea580c;
+  --deep-orange: #c2410c;
+  --bg: #f0f2f5;
+  --card: #fff;
+  --text: #333;
+  --text-secondary: #888;
+  --border: #e0e0e0;
+  --radius: 14px;
+  --shadow: 0 2px 8px rgba(0,0,0,0.06);
+  --nav-height: 56px;
+  --safe-bottom: env(safe-area-inset-bottom, 8px);
+}
+
 * { margin: 0; padding: 0; box-sizing: border-box; }
+html { -webkit-tap-highlight-color: transparent; -webkit-user-select: none; user-select: none; }
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  background: #f0f2f5;
+  background: var(--bg);
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   justify-content: center;
-  padding: 20px;
 }
-.container { width: 100%; max-width: 960px; }
 
-/* Header */
+/* ── App Shell ── */
+#app {
+  width: 100%;
+  max-width: 480px;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: 8px 8px calc(var(--nav-height) + var(--safe-bottom) + 8px) 8px;
+}
+
+/* ── Header (Compact) ── */
 .header {
-  background: #fff; border-radius: 12px; padding: 18px 24px;
-  margin-bottom: 12px; display: flex; align-items: center;
-  justify-content: space-between; box-shadow: 0 1px 3px rgba(0,0,0,0.08);
-  flex-wrap: wrap; gap: 10px;
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: var(--shadow);
+  flex-wrap: wrap;
+  gap: 6px;
 }
-.header h1 { font-size: 21px; color: #1a1a2e; white-space: nowrap; }
-.nav { display: flex; align-items: center; gap: 8px; }
+.header h1 {
+  font-size: 17px;
+  color: var(--text);
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
 .nav button {
-  width: 34px; height: 34px; border: 1px solid #d9d9d9;
-  background: #fff; border-radius: 8px; cursor: pointer;
-  font-size: 15px; color: #555; transition: all 0.15s;
-  display: flex; align-items: center; justify-content: center;
+  width: 38px; height: 38px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 16px;
+  color: #555;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
-.nav button:hover { border-color: #4a6cf7; color: #4a6cf7; background: #f0f4ff; }
+.nav button:active { background: #f0f4ff; border-color: var(--primary); color: var(--primary); }
 .nav .month-label {
-  font-size: 15px; font-weight: 600; color: #333;
-  min-width: 120px; text-align: center;
+  font-size: 14px; font-weight: 700; color: var(--text);
+  min-width: 110px; text-align: center;
 }
 .btn-today {
-  padding: 6px 14px; border: 1px solid #4a6cf7;
-  background: #4a6cf7; color: #fff; border-radius: 8px;
-  cursor: pointer; font-size: 13px; transition: all 0.15s;
+  padding: 8px 14px; border: none;
+  background: var(--primary); color: #fff; border-radius: 10px;
+  cursor: pointer; font-size: 13px; font-weight: 600; transition: all 0.15s;
 }
-.btn-today:hover { background: #3b5de7; }
+.btn-today:active { background: var(--primary-dark); transform: scale(0.96); }
 
-/* Admin badge & button */
+/* ── Admin Controls ── */
 .admin-badge {
   font-size: 11px; background: #f59e0b; color: #fff;
-  padding: 3px 10px; border-radius: 10px; font-weight: 600;
-  animation: pulse 2s infinite;
-}
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.7; }
+  padding: 4px 10px; border-radius: 10px; font-weight: 600;
 }
 .btn-admin {
-  padding: 6px 14px; border: 1px solid #f59e0b;
+  padding: 6px 12px; border: 1px solid #f59e0b;
   background: #fff; color: #f59e0b; border-radius: 8px;
-  cursor: pointer; font-size: 12px; transition: all 0.15s;
+  cursor: pointer; font-size: 11px; transition: all 0.15s;
 }
-.btn-admin:hover { background: #fffbeb; border-color: #d97706; color: #d97706; }
+.btn-admin:active { background: #fffbeb; }
 .btn-admin.logged-in { background: #f59e0b; color: #fff; }
-.btn-admin.logged-in:hover { background: #d97706; }
-
-/* Person Bar */
-.person-bar {
-  background: #fff; border-radius: 12px; padding: 12px 20px;
-  margin-bottom: 12px; display: flex; align-items: center; gap: 12px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.08); flex-wrap: wrap;
-}
-.person-bar .label { font-size: 13px; color: #888; white-space: nowrap; }
-.person-tabs { display: flex; gap: 6px; flex-wrap: wrap; flex: 1; }
-.person-tab {
-  padding: 5px 14px; border-radius: 16px; border: 1px solid #e0e0e0;
-  background: #fff; cursor: pointer; font-size: 13px; transition: all 0.15s;
-  white-space: nowrap; color: #555; position: relative;
-}
-.person-tab:hover { border-color: #4a6cf7; color: #4a6cf7; }
-.person-tab.active { background: #4a6cf7; color: #fff; border-color: #4a6cf7; font-weight: 600; }
-.person-tab .del {
-  margin-left: 6px; font-size: 11px; opacity: 0.6;
-  display: inline-block; width: 16px; height: 16px; line-height: 16px;
-  text-align: center; border-radius: 50%; cursor: pointer;
-}
-.person-tab .del:hover { opacity: 1; background: rgba(0,0,0,0.15); }
-.person-tab.active .del:hover { background: rgba(255,255,255,0.3); }
-.add-person-btn {
-  padding: 5px 14px; border-radius: 16px; border: 1px dashed #ccc;
-  background: #fafafa; cursor: pointer; font-size: 13px; color: #999;
-  transition: all 0.15s; white-space: nowrap;
-}
-.add-person-btn:hover { border-color: #4a6cf7; color: #4a6cf7; background: #f0f4ff; }
-
-/* Identity selector (non-admin) */
-.identity-select {
-  padding: 6px 14px; border-radius: 8px; border: 1px solid #d9d9d9;
-  font-size: 14px; color: #333; background: #fff; cursor: pointer;
-  outline: none; min-width: 120px;
-}
-.identity-select:focus { border-color: #4a6cf7; }
-
-/* View Toggle */
 .view-toggle {
-  display: flex; gap: 4px; background: #f0f0f0; border-radius: 8px; padding: 3px;
+  display: flex; gap: 3px; background: #f0f0f0; border-radius: 8px; padding: 2px;
 }
 .view-toggle button {
-  padding: 5px 14px; border-radius: 6px; border: none; background: transparent;
+  padding: 6px 12px; border-radius: 6px; border: none; background: transparent;
   cursor: pointer; font-size: 12px; color: #777; transition: all 0.15s;
+  min-height: 32px;
 }
-.view-toggle button.active { background: #fff; color: #333; font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+.view-toggle button.active { background: #fff; color: var(--text); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
 
-/* Legend */
+/* ── Person Bar ── */
+.person-bar {
+  background: var(--card); border-radius: var(--radius);
+  padding: 10px 14px; margin-bottom: 8px;
+  display: flex; align-items: center; gap: 8px;
+  box-shadow: var(--shadow); flex-wrap: wrap;
+}
+.person-bar .label { font-size: 13px; color: var(--text-secondary); white-space: nowrap; }
+.person-tabs { display: flex; gap: 5px; flex-wrap: wrap; flex: 1; }
+.person-tab {
+  padding: 6px 14px; border-radius: 18px; border: 1px solid var(--border);
+  background: #fff; cursor: pointer; font-size: 13px; transition: all 0.15s;
+  white-space: nowrap; color: #555; position: relative;
+  min-height: 36px; display: flex; align-items: center;
+}
+.person-tab:active { border-color: var(--primary); color: var(--primary); }
+.person-tab.active { background: var(--primary); color: #fff; border-color: var(--primary); font-weight: 600; }
+.person-tab .del {
+  margin-left: 6px; font-size: 11px; opacity: 0.6;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; line-height: 18px;
+  text-align: center; border-radius: 50%; cursor: pointer;
+}
+.person-tab .del:active { opacity: 1; background: rgba(0,0,0,0.15); }
+.add-person-btn {
+  padding: 6px 14px; border-radius: 18px; border: 1px dashed #ccc;
+  background: #fafafa; cursor: pointer; font-size: 13px; color: #999;
+  transition: all 0.15s; white-space: nowrap; min-height: 36px;
+}
+.add-person-btn:active { border-color: var(--primary); color: var(--primary); background: #f0f4ff; }
+.identity-select {
+  padding: 8px 14px; border-radius: 10px; border: 1px solid var(--border);
+  font-size: 14px; color: var(--text); background: #fff; cursor: pointer;
+  outline: none; min-width: 100px; min-height: 40px;
+}
+.identity-select:focus { border-color: var(--primary); }
+
+/* ── Legend (Compact Scrollable) ── */
 .legend {
-  background: #fff; border-radius: 12px; padding: 10px 20px;
-  margin-bottom: 12px; display: flex; gap: 14px; flex-wrap: wrap;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.08); align-items: center;
+  background: var(--card); border-radius: var(--radius);
+  padding: 8px 14px; margin-bottom: 8px;
+  display: flex; gap: 10px; flex-wrap: wrap;
+  box-shadow: var(--shadow); align-items: center;
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
 }
-.legend-item { display: flex; align-items: center; gap: 5px; font-size: 12px; color: #555; }
-.legend-dot { width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; }
+.legend-item { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #555; white-space: nowrap; }
+.legend-dot { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
 
-/* Stats */
+/* ── Stats ── */
 .stats {
-  background: #fff; border-radius: 12px; padding: 12px 20px;
-  margin-bottom: 12px; display: flex; gap: 16px; flex-wrap: wrap;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.08); font-size: 13px;
+  background: var(--card); border-radius: var(--radius);
+  padding: 10px 14px; margin-bottom: 8px;
+  display: flex; gap: 12px; flex-wrap: wrap;
+  box-shadow: var(--shadow); font-size: 12px;
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
 }
-.stat-item { color: #666; }
-.stat-item b { color: #333; font-size: 15px; }
+.stat-item { color: #666; white-space: nowrap; }
+.stat-item b { color: var(--text); font-size: 15px; }
 
-/* Calendar */
-.calendar { background: #fff; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); overflow: hidden; }
+/* ── Calendar ── */
+.calendar {
+  background: var(--card); border-radius: var(--radius);
+  box-shadow: var(--shadow); overflow: hidden;
+  position: relative;
+  touch-action: pan-y; /* allow vertical scroll, JS handles horizontal swipe */
+}
+.swipe-indicator {
+  position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+  background: rgba(0,0,0,0.6); color: #fff; padding: 6px 16px;
+  border-radius: 20px; font-size: 13px; z-index: 10;
+  pointer-events: none; opacity: 0; transition: opacity 0.3s;
+}
+.swipe-indicator.show { opacity: 1; }
+
 .weekdays {
   display: grid; grid-template-columns: repeat(7, 1fr);
   background: #fafafa; border-bottom: 1px solid #eee;
 }
-.weekdays div { padding: 10px 6px; text-align: center; font-size: 12px; font-weight: 600; color: #888; }
+.weekdays div {
+  padding: 10px 4px; text-align: center;
+  font-size: 12px; font-weight: 600; color: var(--text-secondary);
+  min-height: 36px; display: flex; align-items: center; justify-content: center;
+}
 .weekend-label { color: #e07060 !important; }
 .days { display: grid; grid-template-columns: repeat(7, 1fr); }
+
 .day-cell {
-  border: 1px solid #f0f0f0;
+  border: 1px solid #f5f5f5;
   cursor: pointer; position: relative; transition: all 0.12s;
   display: flex; flex-direction: column; align-items: center;
-  justify-content: center; gap: 1px; user-select: none; min-height: 44px;
-  overflow: hidden;
+  justify-content: flex-start; gap: 1px;
+  min-height: 48px; overflow: hidden;
+  padding: 4px 2px;
+  -webkit-tap-highlight-color: rgba(74,108,247,0.15);
 }
-.day-cell:hover { box-shadow: inset 0 0 0 2px #4a6cf7; z-index: 2; }
+.day-cell:active { background: #f0f4ff !important; }
 .day-cell.empty { cursor: default; background: #fafafa; }
-.day-cell.empty:hover { box-shadow: none; }
-.day-cell.today { box-shadow: inset 0 0 0 2px #4a6cf7; }
+.day-cell.empty:active { background: #fafafa !important; }
+.day-cell.today { box-shadow: inset 0 0 0 2px var(--primary); }
 .day-cell.weekend { background: #fdf8f7; }
 .day-cell.readonly-view { cursor: default !important; }
-.day-cell.readonly-view:hover { box-shadow: none !important; }
+.day-cell.readonly-view:active { background: inherit !important; }
+
 .day-num {
-  font-size: 13px; font-weight: 500; color: #333;
-  line-height: 1;
+  font-size: 14px; font-weight: 500; color: var(--text);
+  line-height: 1; min-width: 20px; text-align: center;
+  margin-bottom: 1px;
 }
 .today .day-num {
-  background: #4a6cf7; color: #fff; border-radius: 50%;
-  width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
-}
-.status-badge {
-  font-size: 10px; padding: 1px 4px; border-radius: 8px; font-weight: 500;
-  white-space: nowrap; line-height: 1.3; max-width: 100%; overflow: hidden; text-overflow: ellipsis;
-}
-.lock-icon {
-  position: absolute; top: 3px; right: 3px;
-  font-size: 9px; opacity: 0.5;
-}
-.note-dot {
-  width: 5px; height: 5px; border-radius: 50%;
-  background: #f0a030; position: absolute; top: 5px; right: 5px;
+  background: var(--primary); color: #fff; border-radius: 50%;
+  width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;
+  font-size: 13px;
 }
 
-/* Team view: multi-person chips */
-.team-chips {
-  display: flex; flex-wrap: wrap; gap: 2px; justify-content: center;
-  max-width: 100%; padding: 0 2px;
+.status-badge {
+  font-size: 9px; padding: 1px 4px; border-radius: 6px; font-weight: 500;
+  white-space: nowrap; line-height: 1.4;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis;
 }
-.team-chip {
-  font-size: 9px; padding: 0px 4px; border-radius: 8px;
-  white-space: nowrap; line-height: 1.6; font-weight: 500;
+.lock-icon { position: absolute; top: 3px; right: 3px; font-size: 8px; opacity: 0.4; }
+.note-dot {
+  width: 4px; height: 4px; border-radius: 50%;
+  background: #f0a030; position: absolute; top: 4px; right: 4px;
 }
-.team-chip.present { background: #e6f7e6; color: #2d8a2d; }
-.team-chip.absent  { background: #ffe8e8; color: #d14343; }
-.team-chip.late    { background: #fff3e0; color: #e67e22; }
-.team-chip.leave   { background: #e8f0fe; color: #3b6fd4; }
-.team-chip.trip    { background: #f3e8ff; color: #7c3aed; }
-.team-chip.overtime { background: #fff7ed; color: #ea580c; }
-.team-chip.overtime_day { background: #fff0e0; color: #c2410c; }
+
+/* Team chips */
+.team-chips { display: flex; flex-wrap: wrap; gap: 1px; justify-content: center; max-width: 100%; padding: 0 1px; }
+.team-chip { font-size: 8px; padding: 0px 3px; border-radius: 6px; white-space: nowrap; line-height: 1.5; font-weight: 500; }
+.team-chip.present { background: #e6f7e6; color: var(--success); }
+.team-chip.absent  { background: #ffe8e8; color: var(--danger); }
+.team-chip.late    { background: #fff3e0; color: var(--warning); }
+.team-chip.leave   { background: #e8f0fe; color: var(--primary-dark); }
+.team-chip.trip    { background: #f3e8ff; color: var(--purple); }
+.team-chip.overtime { background: #fff7ed; color: var(--orange); }
+.team-chip.overtime_day { background: #fff0e0; color: var(--deep-orange); }
 
 /* Single view status colors */
-.s-present .status-badge { background: #e6f7e6; color: #2d8a2d; }
+.s-present .status-badge { background: #e6f7e6; color: var(--success); }
 .s-present { background: #fafffa; }
-.s-absent .status-badge { background: #ffe8e8; color: #d14343; }
+.s-absent .status-badge { background: #ffe8e8; color: var(--danger); }
 .s-absent { background: #fffafa; }
-.s-late .status-badge { background: #fff3e0; color: #e67e22; }
+.s-late .status-badge { background: #fff3e0; color: var(--warning); }
 .s-late { background: #fffdfa; }
-.s-leave .status-badge { background: #e8f0fe; color: #3b6fd4; }
+.s-leave .status-badge { background: #e8f0fe; color: var(--primary-dark); }
 .s-leave { background: #fafcff; }
-.s-trip .status-badge { background: #f3e8ff; color: #7c3aed; }
+.s-trip .status-badge { background: #f3e8ff; color: var(--purple); }
 .s-trip { background: #fdfaff; }
-
-/* 超时 */
-.s-overtime .status-badge { background: #fff7ed; color: #ea580c; }
+.s-overtime .status-badge { background: #fff7ed; color: var(--orange); }
 .s-overtime { background: #fffdfb; }
-
-/* 加班 */
-.s-overtime_day .status-badge { background: #fff0e0; color: #c2410c; }
+.s-overtime_day .status-badge { background: #fff0e0; color: var(--deep-orange); }
 .s-overtime_day { background: #fffcf8; }
 
-/* Note Panel */
+/* ── Note Panel ── */
 .note-panel {
-  background: #fff; border-radius: 12px; padding: 18px 24px;
-  margin-top: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); display: none;
+  background: var(--card); border-radius: var(--radius);
+  padding: 14px; margin-top: 8px;
+  box-shadow: var(--shadow); display: none;
 }
 .note-panel.active { display: block; }
-.note-panel h3 { font-size: 14px; color: #333; margin-bottom: 8px; }
+.note-panel h3 { font-size: 14px; color: var(--text); margin-bottom: 8px; }
 .note-panel textarea {
-  width: 100%; height: 70px; border: 1px solid #d9d9d9;
-  border-radius: 8px; padding: 10px; font-size: 13px; font-family: inherit; resize: vertical;
+  width: 100%; height: 64px; border: 1px solid var(--border);
+  border-radius: 10px; padding: 10px; font-size: 14px; font-family: inherit;
+  resize: vertical; -webkit-appearance: none;
 }
-.note-panel textarea:focus { outline: none; border-color: #4a6cf7; }
+.note-panel textarea:focus { outline: none; border-color: var(--primary); }
 .note-btns { display: flex; gap: 8px; margin-top: 8px; }
-.note-btns button { padding: 5px 16px; border-radius: 6px; cursor: pointer; font-size: 12px; border: none; }
-.btn-save { background: #4a6cf7; color: #fff; }
-.btn-save:hover { background: #3b5de7; }
+.note-btns button { padding: 8px 18px; border-radius: 10px; cursor: pointer; font-size: 13px; border: none; min-height: 40px; }
+.btn-save { background: var(--primary); color: #fff; }
+.btn-save:active { background: var(--primary-dark); }
 .btn-clear { background: #f0f0f0; color: #666; }
-.btn-clear:hover { background: #e0e0e0; }
+.btn-clear:active { background: #e0e0e0; }
 
-/* Actions */
+/* ── Actions ── */
 .actions {
-  display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; justify-content: flex-end;
+  display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px;
+  justify-content: flex-end; padding-bottom: 4px;
 }
 .actions button {
-  padding: 7px 16px; border-radius: 8px; border: 1px solid #d9d9d9;
-  background: #fff; cursor: pointer; font-size: 12px; color: #555; transition: all 0.15s;
+  padding: 8px 14px; border-radius: 10px; border: 1px solid var(--border);
+  background: #fff; cursor: pointer; font-size: 12px; color: #555;
+  transition: all 0.15s; min-height: 38px;
 }
-.actions button:hover { border-color: #4a6cf7; color: #4a6cf7; }
-.actions .btn-export { background: #4a6cf7; color: #fff; border-color: #4a6cf7; }
-.actions .btn-export:hover { background: #3b5de7; }
-.actions .btn-danger { color: #d14343; border-color: #d14343; }
-.actions .btn-danger:hover { background: #fff0f0; }
+.actions button:active { border-color: var(--primary); color: var(--primary); }
+.actions .btn-export { background: var(--primary); color: #fff; border-color: var(--primary); }
+.actions .btn-export:active { background: var(--primary-dark); }
+.actions .btn-danger { color: var(--danger); border-color: var(--danger); }
+.actions .btn-danger:active { background: #fff0f0; }
 
-/* Modal */
-.modal-overlay {
+/* ═══ BOTTOM NAVIGATION ═══ */
+.bottom-nav {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  background: var(--card);
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  height: var(--nav-height);
+  padding-bottom: var(--safe-bottom);
+  border-top: 1px solid #eee;
+  z-index: 90;
+  box-shadow: 0 -2px 10px rgba(0,0,0,0.04);
+}
+.bottom-nav .nav-item {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  background: none; border: none; cursor: pointer;
+  font-size: 10px; color: #999;
+  padding: 4px 12px; min-width: 56px;
+  transition: all 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.bottom-nav .nav-item .nav-icon { font-size: 22px; line-height: 1; }
+.bottom-nav .nav-item.active { color: var(--primary); font-weight: 600; }
+.bottom-nav .nav-item:active { transform: scale(0.92); }
+
+/* ═══ BOTTOM SHEET (replaces centered modal) ═══ */
+.sheet-overlay {
   position: fixed; inset: 0; background: rgba(0,0,0,0.35);
-  display: flex; align-items: center; justify-content: center; z-index: 99;
+  z-index: 100; display: flex; align-items: flex-end;
+  animation: fadeIn 0.2s ease;
 }
-.modal {
-  background: #fff; border-radius: 14px; padding: 24px; min-width: 320px;
-  box-shadow: 0 8px 30px rgba(0,0,0,0.15);
+.sheet {
+  background: var(--card); border-radius: 18px 18px 0 0;
+  width: 100%; max-width: 480px; margin: 0 auto;
+  padding: 20px 18px max(20px, env(safe-area-inset-bottom, 20px)) 18px;
+  box-shadow: 0 -4px 20px rgba(0,0,0,0.12);
+  animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  max-height: 85vh; overflow-y: auto;
 }
-.modal h3 { font-size: 16px; color: #333; margin-bottom: 14px; }
-.modal input {
-  width: 100%; padding: 10px 14px; border: 1px solid #d9d9d9;
-  border-radius: 8px; font-size: 15px; outline: none;
+.sheet-handle {
+  width: 36px; height: 4px; background: #ddd;
+  border-radius: 2px; margin: 0 auto 14px auto;
 }
-.modal input:focus { border-color: #4a6cf7; }
-.modal-btns { display: flex; gap: 8px; margin-top: 14px; justify-content: flex-end; }
-.modal-btns button {
-  padding: 7px 20px; border-radius: 8px; cursor: pointer; font-size: 13px; border: none;
-}
-.modal-btns .btn-confirm { background: #4a6cf7; color: #fff; }
-.modal-btns .btn-cancel { background: #f0f0f0; color: #666; }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
 
-/* Status Picker (non-admin) */
-.status-picker-overlay {
-  position: fixed; inset: 0; background: rgba(0,0,0,0.2);
-  display: flex; align-items: center; justify-content: center; z-index: 98;
+/* Sheet inner elements */
+.sheet h3 { font-size: 16px; color: var(--text); margin-bottom: 14px; text-align: center; }
+.sheet .picker-btns { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.sheet .picker-btn {
+  padding: 10px 20px; border-radius: 24px; border: 2px solid var(--border);
+  background: #fff; cursor: pointer; font-size: 14px; transition: all 0.15s;
+  font-weight: 500; min-height: 44px; min-width: 60px;
 }
-.status-picker {
-  background: #fff; border-radius: 14px; padding: 20px 24px;
-  box-shadow: 0 8px 30px rgba(0,0,0,0.15); text-align: center;
+.sheet .picker-btn:active { transform: scale(0.95); }
+.sheet .picker-btn.present { border-color: var(--success); color: var(--success); }
+.sheet .picker-btn.present:active { background: #e6f7e6; }
+.sheet .picker-btn.absent { border-color: var(--danger); color: var(--danger); }
+.sheet .picker-btn.absent:active { background: #ffe8e8; }
+.sheet .picker-btn.late { border-color: var(--warning); color: var(--warning); }
+.sheet .picker-btn.late:active { background: #fff3e0; }
+.sheet .picker-btn.leave { border-color: var(--primary-dark); color: var(--primary-dark); }
+.sheet .picker-btn.leave:active { background: #e8f0fe; }
+.sheet .picker-btn.trip { border-color: var(--purple); color: var(--purple); }
+.sheet .picker-btn.trip:active { background: #f3e8ff; }
+.sheet .picker-btn.overtime { border-color: var(--orange); color: var(--orange); }
+.sheet .picker-btn.overtime:active { background: #fff7ed; }
+.sheet .picker-btn.overtime_day { border-color: var(--deep-orange); color: var(--deep-orange); }
+.sheet .picker-btn.overtime_day:active { background: #fff0e0; }
+.sheet .picker-cancel {
+  margin-top: 12px; padding: 10px 20px; border-radius: 10px;
+  border: none; background: #f0f0f0; color: #888; cursor: pointer;
+  font-size: 14px; width: 100%; min-height: 44px;
 }
-.status-picker h3 { font-size: 15px; color: #333; margin-bottom: 14px; }
-.status-picker .picker-btns { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
-.status-picker .picker-btn {
-  padding: 8px 16px; border-radius: 20px; border: 2px solid #e0e0e0;
-  background: #fff; cursor: pointer; font-size: 13px; transition: all 0.15s;
-  font-weight: 500;
-}
-.status-picker .picker-btn:hover { transform: scale(1.05); }
-.status-picker .picker-btn.present { border-color: #2d8a2d; color: #2d8a2d; }
-.status-picker .picker-btn.present:hover { background: #e6f7e6; }
-.status-picker .picker-btn.absent { border-color: #d14343; color: #d14343; }
-.status-picker .picker-btn.absent:hover { background: #ffe8e8; }
-.status-picker .picker-btn.late { border-color: #e67e22; color: #e67e22; }
-.status-picker .picker-btn.late:hover { background: #fff3e0; }
-.status-picker .picker-btn.leave { border-color: #3b6fd4; color: #3b6fd4; }
-.status-picker .picker-btn.leave:hover { background: #e8f0fe; }
-.status-picker .picker-btn.trip { border-color: #7c3aed; color: #7c3aed; }
-.status-picker .picker-btn.trip:hover { background: #f3e8ff; }
-.status-picker .picker-btn.overtime { border-color: #ea580c; color: #ea580c; }
-.status-picker .picker-btn.overtime:hover { background: #fff7ed; }
-.status-picker .picker-btn.overtime_day { border-color: #c2410c; color: #c2410c; }
-.status-picker .picker-btn.overtime_day:hover { background: #fff0e0; }
-.status-picker .picker-cancel {
-  margin-top: 12px; padding: 5px 16px; border-radius: 6px;
-  border: none; background: #f0f0f0; color: #888; cursor: pointer; font-size: 12px;
-}
+.sheet .picker-cancel:active { background: #e0e0e0; }
 
-/* 多状态编辑器 */
+/* Sheet: multi-status editor */
 .multi-items { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
 .multi-item {
   display: flex; align-items: center; justify-content: space-between;
-  background: #f8f9fa; padding: 6px 12px; border-radius: 6px;
-  border: 1px solid #e0e0e0; font-size: 13px;
+  background: #f8f9fa; padding: 10px 14px; border-radius: 10px;
+  border: 1px solid var(--border); font-size: 14px; min-height: 44px;
 }
-.multi-label { color: #333; font-weight: 500; }
+.multi-label { color: var(--text); font-weight: 500; }
 .multi-del {
-  width: 22px; height: 22px; border: none; background: #fee2e2;
-  color: #dc2626; border-radius: 50%; cursor: pointer; font-size: 12px;
-  line-height: 22px; text-align: center; padding: 0;
+  width: 28px; height: 28px; border: none; background: #fee2e2;
+  color: #dc2626; border-radius: 50%; cursor: pointer; font-size: 14px;
+  display: flex; align-items: center; justify-content: center;
 }
-.multi-del:hover { background: #fca5a5; color: #991b1b; }
+.multi-del:active { background: #fca5a5; color: #991b1b; }
+
+/* Sheet: input fields */
+.sheet input, .sheet select {
+  width: 100%; padding: 12px 14px; border: 1px solid var(--border);
+  border-radius: 10px; font-size: 15px; outline: none;
+  -webkit-appearance: none; min-height: 46px;
+}
+.sheet input:focus, .sheet select:focus { border-color: var(--primary); }
+.sheet .sheet-btns { display: flex; gap: 8px; margin-top: 14px; }
+.sheet .sheet-btns button {
+  flex: 1; padding: 12px; border-radius: 10px; cursor: pointer;
+  font-size: 14px; border: none; font-weight: 500;
+  min-height: 44px;
+}
+.sheet .sheet-btns .btn-confirm { background: var(--primary); color: #fff; }
+.sheet .sheet-btns .btn-confirm:active { background: var(--primary-dark); }
+.sheet .sheet-btns .btn-cancel { background: #f0f0f0; color: #666; }
+.sheet .sheet-btns .btn-cancel:active { background: #e0e0e0; }
 
 /* Toast */
 .toast {
-  position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
-  background: #333; color: #fff; padding: 10px 24px; border-radius: 8px;
+  position: fixed; top: 60px; left: 50%; transform: translateX(-50%);
+  background: #333; color: #fff; padding: 10px 24px; border-radius: 10px;
   font-size: 14px; z-index: 200; animation: toastIn 0.3s ease;
-  pointer-events: none;
+  pointer-events: none; white-space: nowrap;
 }
-.toast.warn { background: #e67e22; }
+.toast.warn { background: var(--warning); }
 @keyframes toastIn {
   from { opacity: 0; transform: translateX(-50%) translateY(-10px); }
   to { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 
-@media (max-width: 600px) {
-  body { padding: 4px; }
-  .header { padding: 8px 10px; }
-  .header h1 { font-size: 16px; }
-  .person-bar { padding: 8px 10px; gap: 6px; }
-  .legend { padding: 6px 10px; gap: 6px; }
+/* ═══ RESPONSIVE BREAKPOINTS ═══ */
+
+/* Tablet / larger phones (portrait iPad, etc.) */
+@media (min-width: 481px) {
+  #app { padding: 12px 12px calc(var(--nav-height) + var(--safe-bottom) + 12px) 12px; }
+  .day-cell { min-height: 52px; }
+  .day-num { font-size: 15px; }
+  .today .day-num { width: 28px; height: 28px; font-size: 14px; }
+  .status-badge { font-size: 10px; padding: 1px 5px; }
+  .header h1 { font-size: 18px; }
+  .nav button { width: 40px; height: 40px; }
+  .sheet { max-width: 480px; padding: 24px 20px max(24px, env(safe-area-inset-bottom, 24px)) 20px; }
+}
+
+/* Desktop (960px+) */
+@media (min-width: 769px) {
+  body { padding: 16px; }
+  #app { max-width: 960px; padding: 0 0 16px 0; }
+  .bottom-nav { display: none; }
+  .day-cell { min-height: 54px; }
+  .day-num { font-size: 14px; }
+  .today .day-num { width: 26px; height: 26px; }
+  .status-badge { font-size: 10px; padding: 1px 5px; }
+  .sheet {
+    border-radius: 16px;
+    position: relative; margin: 0 auto;
+    animation: slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    max-width: 420px;
+  }
+  .sheet-overlay {
+    align-items: center;
+  }
+  .sheet-handle { display: none; }
+  .header { flex-wrap: nowrap; }
+}
+
+/* Very small phones (≤360px, e.g. iPhone SE 1st gen) */
+@media (max-width: 360px) {
+  #app { padding: 4px 4px calc(var(--nav-height) + var(--safe-bottom) + 4px) 4px; }
+  .day-cell { min-height: 42px; padding: 2px 1px; }
+  .day-num { font-size: 12px; }
+  .today .day-num { width: 20px; height: 20px; font-size: 11px; }
+  .status-badge { font-size: 8px; padding: 0 2px; border-radius: 4px; }
+  .weekdays div { padding: 8px 2px; font-size: 10px; }
   .legend-item { font-size: 10px; }
-  .legend-dot { width: 10px; height: 10px; }
-  .day-cell { min-height: 36px; gap: 0px; }
-  .day-num { font-size: 10px; }
-  .today .day-num { width: 20px; height: 20px; font-size: 9px; }
-  .status-badge { font-size: 7px; padding: 0 2px; border-radius: 4px; line-height: 1.2; }
-  .team-chip { font-size: 7px; padding: 0 2px; line-height: 1.3; }
-  .weekdays div { padding: 6px 4px; font-size: 10px; }
-  .actions { justify-content: center; }
-  .actions button { font-size: 10px; padding: 5px 10px; }
-  .btn-today { font-size: 11px; padding: 4px 10px; }
-  .person-tab { font-size: 11px; padding: 3px 10px; }
-  .identity-select { font-size: 12px; padding: 4px 10px; }
+  .sheet .picker-btn { padding: 8px 14px; font-size: 13px; min-height: 38px; }
 }
 
-@media (max-width: 400px) {
-  .day-cell { min-height: 32px; }
-  .day-num { font-size: 9px; }
-  .today .day-num { width: 18px; height: 18px; font-size: 8px; }
-  .status-badge { font-size: 6px; padding: 0 2px; line-height: 1.1; }
-  .team-chip { font-size: 6px; padding: 0 2px; line-height: 1.1; }
-  .weekdays div { padding: 4px 2px; font-size: 9px; }
-  .legend-item { font-size: 9px; }
-}
-
+/* Print */
 @media print {
-  body { background: #fff; padding: 0; }
-  .person-bar, .note-panel, .actions, .legend, .view-toggle, .add-person-btn { display: none !important; }
-  .person-tabs { display: none !important; }
+  body { background: #fff; }
+  #app { max-width: 100%; padding: 0; }
+  .bottom-nav, .person-bar, .note-panel, .actions, .legend, .view-toggle, .add-person-btn { display: none !important; }
   .calendar { box-shadow: none; }
   .day-cell { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
-}</style>
+</style>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <script>
 // ════════════════════════════════════════════════════════
@@ -627,6 +756,7 @@ let modalCb = null;
 let isAdmin = false;
 let currentAdmin = '';
 let unlockedPersons = new Set(); // 本次会话已解锁的身份
+let activeTab = 'calendar'; // H5 bottom nav active tab
 
 // ── Storage ──
 function loadPeople() {
@@ -791,13 +921,13 @@ function setPassword(newPwd) {
 function showModal(title, placeholder, cb, pwdMode) {
   modalCb = cb;
   const overlay = document.createElement('div');
-  overlay.className = 'modal-overlay';
+  overlay.className = 'sheet-overlay';
   overlay.id = 'modalOverlay';
   overlay.innerHTML = `
-    <div class="modal">
+    <div class="sheet"><div class="sheet-handle"></div>
       <h3>${title}</h3>
       <input id="modalInput" placeholder="${placeholder}" ${pwdMode ? 'type="password"' : ''} autofocus>
-      <div class="modal-btns">
+      <div class="sheet-btns">
         <button class="btn-cancel" onclick="closeModal()">取消</button>
         <button class="btn-confirm" onclick="confirmModal()">确认</button>
       </div>
@@ -833,13 +963,13 @@ function showToast(msg, warn) {
 function showLogin() {
   // 自定义登录弹窗：身份选择 + 密码
   const overlay = document.createElement('div');
-  overlay.className = 'modal-overlay';
+  overlay.className = 'sheet-overlay';
   overlay.id = 'adminLoginOverlay';
   overlay.addEventListener('click', (e) => {
     if (e.target === overlay) closeAdminLogin();
   });
   overlay.innerHTML = `
-    <div class="modal" style="max-width:360px;">
+    <div class="sheet"><div class="sheet-handle"></div>
       <h3>🔐 管理员登录</h3>
       <p style="font-size:13px;color:#888;margin-bottom:8px;">选择身份并输入密码</p>
       <select id="adminUserSelect" style="width:100%;padding:10px;border:1px solid #d9d9d9;border-radius:6px;font-size:14px;margin-bottom:10px;">
@@ -847,7 +977,7 @@ function showLogin() {
       </select>
       <input id="adminPwdInput" type="password" placeholder="输入管理员密码..." autofocus
         style="width:100%;padding:10px;border:1px solid #d9d9d9;border-radius:6px;font-size:14px;box-sizing:border-box;">
-      <div class="modal-btns" style="margin-top:12px;">
+      <div class="sheet-btns" style="margin-top:12px;">
         <button class="btn-cancel" onclick="closeAdminLogin()">取消</button>
         <button class="btn-confirm" onclick="confirmAdminLogin()">确认</button>
       </div>
@@ -907,7 +1037,7 @@ function showManageAdmins() {
   if (!isAdmin) return;
   const admins = loadAdminUsers();
   const overlay = document.createElement('div');
-  overlay.className = 'modal-overlay';
+  overlay.className = 'sheet-overlay';
   overlay.id = 'manageAdminsOverlay';
   overlay.addEventListener('click', (e) => {
     if (e.target === overlay) closeManageAdmins();
@@ -921,7 +1051,7 @@ function showManageAdmins() {
   `).join('');
   
   overlay.innerHTML = `
-    <div class="modal" style="max-width:380px;">
+    <div class="sheet"><div class="sheet-handle"></div>
       <h3>👑 管理员管理</h3>
       <div style="margin:10px 0;max-height:200px;overflow-y:auto;">${listHtml}</div>
       <div style="display:flex;gap:8px;margin-top:12px;">
@@ -985,17 +1115,17 @@ let pinPromptCb = null;
 function showPinPrompt(name, title, cb) {
   pinPromptCb = cb;
   const overlay = document.createElement('div');
-  overlay.className = 'modal-overlay';
+  overlay.className = 'sheet-overlay';
   overlay.id = 'pinPromptOverlay';
   overlay.addEventListener('click', (e) => {
     if (e.target === overlay) closePinPrompt();
   });
   overlay.innerHTML = `
-    <div class="modal">
+    <div class="sheet"><div class="sheet-handle"></div>
       <h3>🔒 ${title}</h3>
       <p style="font-size:13px;color:#888;margin-bottom:10px;">身份：<b>${name}</b></p>
       <input id="pinInput" type="password" placeholder="输入密码（4位以上）" autofocus maxlength="20">
-      <div class="modal-btns">
+      <div class="sheet-btns">
         <button class="btn-cancel" onclick="closePinPrompt()">取消</button>
         <button class="btn-confirm" onclick="confirmPinPrompt()">确认</button>
       </div>
@@ -1078,7 +1208,7 @@ function unlockPersonPermanently(name) {
 // ── Status Picker (non-admin: 休超时假/缺勤/迟到/休假; admin: all) ──
 function showStatusPicker(key, isFuture) {
   const overlay = document.createElement('div');
-  overlay.className = 'status-picker-overlay';
+  overlay.className = 'sheet-overlay';
   overlay.id = 'statusPickerOverlay';
   overlay.addEventListener('click', (e) => {
     if (e.target === overlay) closeStatusPicker();
@@ -1092,7 +1222,7 @@ function showStatusPicker(key, isFuture) {
   }
 
   overlay.innerHTML = `
-    <div class="status-picker">
+    <div class="sheet"><div class="sheet-handle"></div>
       <h3>${isFuture ? '提前申报（仅限休超时假/休假）' : (isAdmin ? '选择考勤状态' : '申报考勤（填后不可修改）')}</h3>
       <div class="picker-btns">${btns}</div>
       <button class="picker-cancel" onclick="closeStatusPicker()">取消</button>
@@ -1112,7 +1242,7 @@ function showMultiStatusEditor(key, day) {
   const statuses = parseStatuses(raw);
 
   const overlay = document.createElement('div');
-  overlay.className = 'status-picker-overlay';
+  overlay.className = 'sheet-overlay';
   overlay.id = 'multiStatusOverlay';
   overlay.addEventListener('click', (e) => {
     if (e.target === overlay) closeMultiStatusEditor();
@@ -1129,7 +1259,7 @@ function showMultiStatusEditor(key, day) {
   }
 
   overlay.innerHTML = `
-    <div class="status-picker" style="min-width:300px;">
+    <div class="sheet"><div class="sheet-handle"></div>
       <h3>📅 ${currentYear}/${currentMonth}/${day} - 编辑状态</h3>
       ${itemsHtml ? `<div class="multi-items">${itemsHtml}</div>` : '<p style="color:#999;font-size:13px;">暂无状态</p>'}
       <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
@@ -1190,7 +1320,7 @@ function pickStatus(key, status) {
 // ── 休假子类型选择器 ──
 function showLeaveSubtypePicker(key) {
   const overlay = document.createElement('div');
-  overlay.className = 'status-picker-overlay';
+  overlay.className = 'sheet-overlay';
   overlay.id = 'leaveSubtypeOverlay';
   overlay.addEventListener('click', (e) => {
     if (e.target === overlay) closeLeaveSubtypePicker();
@@ -1202,7 +1332,7 @@ function showLeaveSubtypePicker(key) {
   }
 
   overlay.innerHTML = `
-    <div class="status-picker">
+    <div class="sheet"><div class="sheet-handle"></div>
       <h3>选择休假类型</h3>
       <div class="picker-btns" style="max-width:420px;">${btns}</div>
       <button class="picker-cancel" onclick="closeLeaveSubtypePicker()">取消</button>
@@ -1223,7 +1353,7 @@ function pickLeaveSubtype(key, subtype) {
 // ── 休假/公差时长选择器 ──
 function showHourPicker(key, statusType, leaveSubtype) {
   const overlay = document.createElement('div');
-  overlay.className = 'status-picker-overlay';
+  overlay.className = 'sheet-overlay';
   overlay.id = 'hourPickerOverlay';
   overlay.addEventListener('click', (e) => {
     if (e.target === overlay) closeHourPicker();
@@ -1248,7 +1378,7 @@ function showHourPicker(key, statusType, leaveSubtype) {
   }
 
   overlay.innerHTML = `
-    <div class="status-picker">
+    <div class="sheet"><div class="sheet-handle"></div>
       <h3>${title}</h3>
       <div class="picker-btns" style="max-width:380px;">${btns}</div>
       <button class="picker-cancel" onclick="closeHourPicker()">取消</button>
@@ -1317,8 +1447,56 @@ function init() {
     }
   }
   render();
+  setupSwipeGestures();
 }
 init();
+
+// ── H5 Swipe Gestures ──
+function setupSwipeGestures() {
+  const calendar = document.querySelector('.calendar');
+  if (!calendar) return;
+  let startX = 0, startY = 0, moved = false;
+
+  calendar.addEventListener('touchstart', (e) => {
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+    moved = false;
+  }, {passive: true});
+
+  calendar.addEventListener('touchmove', (e) => {
+    if (Math.abs(e.touches[0].clientX - startX) > 10) moved = true;
+  }, {passive: true});
+
+  calendar.addEventListener('touchend', (e) => {
+    if (!moved) return;
+    const dx = e.changedTouches[0].clientX - startX;
+    const dy = e.changedTouches[0].clientY - startY;
+
+    // Only trigger swipe if horizontal movement is significant and dominant
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      if (dx > 0) {
+        prevMonth();
+        showSwipeIndicator('◀ 上个月');
+      } else {
+        nextMonth();
+        showSwipeIndicator('下个月 ▶');
+      }
+    }
+  });
+}
+
+function showSwipeIndicator(text) {
+  let el = document.querySelector('.swipe-indicator');
+  if (!el) {
+    el = document.createElement('div');
+    el.className = 'swipe-indicator';
+    document.querySelector('.calendar')?.appendChild(el);
+  }
+  el.textContent = text;
+  el.classList.add('show');
+  clearTimeout(el._timeout);
+  el._timeout = setTimeout(() => el.classList.remove('show'), 800);
+}
 
 // ── Render ──
 function render() {
@@ -1429,6 +1607,17 @@ function render() {
       ${isAdmin ? '<button onclick="clearAllData()" style="background:#dc2626;color:#fff;border-color:#dc2626;">🗑 清除所有考勤数据</button>' : ''}
       ${isAdmin ? '<button onclick="embedDataToFile()" style="background:#8b5cf6;color:#fff;border-color:#8b5cf6;">📦 嵌入数据到文件</button>' : ''}
     </div>
+    <nav class="bottom-nav">
+      <button class="nav-item ${activeTab==='calendar'?'active':''}" onclick="switchTab('calendar')">
+        <span class="nav-icon">📅</span>日历
+      </button>
+      <button class="nav-item ${activeTab==='stats'?'active':''}" onclick="switchTab('stats')">
+        <span class="nav-icon">📊</span>统计
+      </button>
+      <button class="nav-item ${activeTab==='me'?'active':''}" onclick="switchTab('me')">
+        <span class="nav-icon">👤</span>我的
+      </button>
+    </nav>
   `;
 
   if (isAdmin) {
@@ -1438,12 +1627,56 @@ function render() {
   renderStats();
 
   document.addEventListener('keydown', escHandler);
+
+  // Apply tab visibility
+  applyTabVisibility();
 }
 
 function escHandler(e) {
   if (e.key === 'Escape') {
     document.getElementById('notePanel')?.classList.remove('active');
     activeDate = null;
+  }
+}
+
+// ── H5 Bottom Nav ──
+function switchTab(tab) {
+  activeTab = tab;
+  applyTabVisibility();
+  // Update nav item classes
+  document.querySelectorAll('.bottom-nav .nav-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.tab === tab);
+  });
+}
+
+function applyTabVisibility() {
+  const calendar = document.querySelector('.calendar');
+  const stats = document.getElementById('stats');
+  const actions = document.querySelector('.actions');
+  const legend = document.querySelector('.legend');
+  const personBar = document.querySelector('.person-bar');
+  const notePanel = document.getElementById('notePanel');
+
+  if (activeTab === 'calendar') {
+    if (calendar) calendar.style.display = '';
+    if (stats) stats.style.display = '';
+    if (actions) actions.style.display = '';
+    if (legend) legend.style.display = '';
+    if (personBar) personBar.style.display = '';
+  } else if (activeTab === 'stats') {
+    if (calendar) calendar.style.display = 'none';
+    if (stats) stats.style.display = '';
+    if (actions) actions.style.display = 'none';
+    if (legend) legend.style.display = 'none';
+    if (personBar) personBar.style.display = 'none';
+    if (notePanel) notePanel.classList.remove('active');
+  } else if (activeTab === 'me') {
+    if (calendar) calendar.style.display = 'none';
+    if (stats) stats.style.display = 'none';
+    if (actions) actions.style.display = '';
+    if (legend) legend.style.display = 'none';
+    if (personBar) personBar.style.display = '';
+    if (notePanel) notePanel.classList.remove('active');
   }
 }
 
@@ -1753,7 +1986,7 @@ function cycleStatus(key) {
 // 管理员修改休超时假/公差/休假时长
 function showHourPickerForAdmin(key, statusType, currentHours, leaveSubtype) {
   const overlay = document.createElement('div');
-  overlay.className = 'status-picker-overlay';
+  overlay.className = 'sheet-overlay';
   overlay.id = 'hourPickerOverlay';
   overlay.addEventListener('click', (e) => {
     if (e.target === overlay) closeHourPicker();
@@ -1780,7 +2013,7 @@ function showHourPickerForAdmin(key, statusType, currentHours, leaveSubtype) {
   }
 
   overlay.innerHTML = `
-    <div class="status-picker">
+    <div class="sheet"><div class="sheet-handle"></div>
       <h3>${title}（当前：${curLabel}）</h3>
       <div class="picker-btns" style="max-width:380px;">${btns}</div>
       <button class="picker-cancel" onclick="closeHourPicker()">取消</button>
