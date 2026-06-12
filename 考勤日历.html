@@ -2530,5 +2530,13 @@ function restoreEmbeddedData() {
   }
 }
 </script>
+<script>
+// 注册 PWA Service Worker（Android 安装提示必需）
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').then(r => {
+    console.log('SW registered:', r.scope);
+  }).catch(e => console.log('SW failed:', e));
+}
+</script>
 </body>
 </html>
