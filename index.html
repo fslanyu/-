@@ -262,6 +262,7 @@ body {
 .team-chip.overtime { background: #fff7ed; color: var(--orange); }
 .team-chip.overtime_day { background: #fff0e0; color: var(--deep-orange); }
 .team-chip.manual { background: #e0f2f1; color: #00695c; }
+.team-chip.shift { background: #fce4ec; color: #c2185b; }
 
 /* Single view status colors */
 .s-present .status-badge { background: #e6f7e6; color: var(--success); }
@@ -281,6 +282,9 @@ body {
 
 .s-manual .status-badge { background: #e0f2f1; color: #00695c; }
 .s-manual { background: #f8fdfc; }
+
+.s-shift .status-badge { background: #fce4ec; color: #c2185b; }
+.s-shift { background: #fffafa; }
 
 /* ── Note Panel ── */
 .note-panel {
@@ -391,6 +395,8 @@ body {
 .sheet .picker-btn.overtime_day:active { background: #fff0e0; }
 .sheet .picker-btn.manual { border-color: #00695c; color: #00695c; }
 .sheet .picker-btn.manual:active { background: #e0f2f1; }
+.sheet .picker-btn.shift { border-color: #c2185b; color: #c2185b; }
+.sheet .picker-btn.shift:active { background: #fce4ec; }
 .sheet .picker-cancel {
   margin-top: 12px; padding: 10px 20px; border-radius: 10px;
   border: none; background: #f0f0f0; color: #888; cursor: pointer;
@@ -727,8 +733,9 @@ const STATUS = {
   overtime:{ label: '超时', cls: 's-overtime' },
   overtime_day: { label: '加班', cls: 's-overtime_day' },
   manual:  { label: '手工单', cls: 's-manual' },
+  shift:   { label: '班次', cls: 's-shift' },
 };
-const STATUS_ORDER = ['present','absent','late','leave','trip','overtime','overtime_day','manual'];
+const STATUS_ORDER = ['present','absent','late','leave','trip','overtime','overtime_day','manual','shift'];
 
 // 时长选项
 const PRESENT_HOURS = ['半天', '全天', '0.5', '1', '1.5', '2', '2.5', '3', '3.5', '4', '4.5', '5', '5.5', '6', '6.5', '7'];
@@ -831,7 +838,8 @@ function parseStatus(raw) {
   const parts = raw.split('|');
   const status = parts[0];
   const hours = parts[1] || null;
-  const subtype = (status === 'leave' && parts.length >= 3) ? parts[2] : null;
+  const subtype = (status === 'leave' && parts.length >= 3) ? parts[2] :
+                 (status === 'manual' && parts.length >= 3) ? parts[2] : null;
   return { status, hours, subtype };
 }
 function formatStatus(status, hours, subtype) {
@@ -864,7 +872,13 @@ function getDisplayLabel(raw) {
       return subtype;
     }
     if (status === 'manual') {
-      return '手工单 ' + (hours || '1') + '张';
+      const sheets = hours || '0';
+      const doses = subtype || '0';
+      if (doses === '0' && subtype === null) return '手工单 ' + sheets + '张';
+      return '手工单 ' + sheets + '张' + doses + '剂';
+    }
+    if (status === 'shift') {
+      return '班次 ' + (hours || '');
     }
     if (hours && hours !== '全天') {
       if (hours === '半天') return label + (status === 'present' ? ' 补休半天' : ' 半天');
@@ -1289,7 +1303,7 @@ function showDayDetail(key, day, raw, note) {
   let itemsHtml = '';
   for (const s of statuses) {
     const lbl = getDisplayLabel(formatStatus(s.status, s.hours, s.subtype));
-    const icons = {present:'🏖',absent:'❌',late:'⏰',leave:'🌴',trip:'🚗',overtime:'⏱',overtime_day:'💼',manual:'📄'};
+    const icons = {present:'🏖',absent:'❌',late:'⏰',leave:'🌴',trip:'🚗',overtime:'⏱',overtime_day:'💼',manual:'📄',shift:'🔄'};
     itemsHtml += `<div style="font-size:18px;padding:8px 12px;background:#f8f9fa;border-radius:8px;margin:4px 0;display:flex;align-items:center;gap:8px;">
       <span style="font-size:22px;">${icons[s.status]||'📌'}</span>
       <span style="font-weight:600;">${lbl}</span>
@@ -1445,8 +1459,13 @@ function pickStatus(key, status) {
     return;
   }
   if (status === 'manual') {
-    // 手工单：弹出数量输入
+    // 手工单：弹出双输入（张数+剂数）
     showManualQuantityPicker(key);
+    return;
+  }
+  if (status === 'shift') {
+    // 班次：弹出班次选择
+    showShiftPicker(key);
     return;
   }
   if (status === 'present' || status === 'trip' || status === 'overtime' || status === 'overtime_day') {
@@ -1561,7 +1580,7 @@ function pickHours(key, hours, statusType, leaveSubtype) {
   showToast(`✅ 已登记：${label}`);
 }
 
-// ── 手工单数量输入 ──
+// ── 手工单双输入（张数 + 剂数）──
 function showManualQuantityPicker(key) {
   const overlay = document.createElement('div');
   overlay.className = 'sheet-overlay';
@@ -1572,8 +1591,16 @@ function showManualQuantityPicker(key) {
   overlay.innerHTML = `
     <div class="sheet"><div class="sheet-handle"></div>
       <h3>手工单 - 输入数量</h3>
-      <input id="manualQtyInput" type="number" min="1" max="999" value="1" placeholder="输入张数..."
-        style="width:100%;padding:12px;border:1px solid #d9d9d9;border-radius:10px;font-size:18px;text-align:center;box-sizing:border-box;">
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:4px;">
+        <span style="font-size:14px;color:#555;white-space:nowrap;">张数：</span>
+        <input id="manualQtySheets" type="number" min="0" max="999" value="1" placeholder="张"
+          style="flex:1;padding:12px;border:1px solid #d9d9d9;border-radius:10px;font-size:18px;text-align:center;box-sizing:border-box;">
+      </div>
+      <div style="display:flex;gap:10px;align-items:center;">
+        <span style="font-size:14px;color:#555;white-space:nowrap;">剂数：</span>
+        <input id="manualQtyDoses" type="number" min="0" max="999" value="0" placeholder="剂"
+          style="flex:1;padding:12px;border:1px solid #d9d9d9;border-radius:10px;font-size:18px;text-align:center;box-sizing:border-box;">
+      </div>
       <div class="sheet-btns" style="margin-top:12px;">
         <button class="btn-cancel" onclick="closeManualQtyPicker()">取消</button>
         <button class="btn-confirm" onclick="confirmManualQty('${key}')">确认</button>
@@ -1582,10 +1609,14 @@ function showManualQuantityPicker(key) {
   `;
   document.body.appendChild(overlay);
   setTimeout(() => {
-    const inp = document.getElementById('manualQtyInput');
+    const inp = document.getElementById('manualQtySheets');
     if (inp) { inp.focus(); inp.select(); }
   }, 50);
-  document.getElementById('manualQtyInput').addEventListener('keydown', (e) => {
+  document.getElementById('manualQtySheets').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') confirmManualQty(key);
+    if (e.key === 'Escape') closeManualQtyPicker();
+  });
+  document.getElementById('manualQtyDoses').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') confirmManualQty(key);
     if (e.key === 'Escape') closeManualQtyPicker();
   });
@@ -1594,12 +1625,16 @@ function closeManualQtyPicker() {
   document.getElementById('manualQtyOverlay')?.remove();
 }
 function confirmManualQty(key) {
-  const val = parseInt(document.getElementById('manualQtyInput').value, 10);
+  const sheets = parseInt(document.getElementById('manualQtySheets').value, 10);
+  const doses = parseInt(document.getElementById('manualQtyDoses').value, 10);
   closeManualQtyPicker();
-  if (!val || val < 1) { showToast('请输入有效数量', true); return; }
+  if (isNaN(sheets) || sheets < 0) { showToast('请输入有效张数', true); return; }
+  if (isNaN(doses) || doses < 0) { showToast('请输入有效剂数', true); return; }
+  if (sheets === 0 && doses === 0) { showToast('张数和剂数不能都为0', true); return; }
   const data = loadData(currentPerson, ym());
   const raw = data[key] || null;
-  const result = appendStatus(raw, 'manual', String(val));
+  const doseStr = doses > 0 ? String(doses) : null;
+  const result = appendStatus(raw, 'manual', String(sheets), doseStr);
   if (result === null) {
     showToast('⚠️ 该日期已有缺勤/加班/全天补休/年休假全天，不能再叠加其他状态', true);
     return;
@@ -1607,7 +1642,48 @@ function confirmManualQty(key) {
   data[key] = result;
   saveData(currentPerson, ym(), data);
   render();
-  showToast(`✅ 已登记：手工单 ${val}张`);
+  const label = doses > 0 ? `手工单 ${sheets}张${doses}剂` : `手工单 ${sheets}张`;
+  showToast(`✅ 已登记：${label}`);
+}
+
+// ── 班次选择器 ──
+const SHIFT_TYPES = ['早班', '晚班', '出院班', '直落'];
+function showShiftPicker(key) {
+  const overlay = document.createElement('div');
+  overlay.className = 'sheet-overlay';
+  overlay.id = 'shiftPickerOverlay';
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeShiftPicker();
+  });
+  let btns = '';
+  for (const st of SHIFT_TYPES) {
+    btns += `<button class="picker-btn shift" onclick="pickShift('${key}','${st}')">${st}</button>`;
+  }
+  overlay.innerHTML = `
+    <div class="sheet"><div class="sheet-handle"></div>
+      <h3>选择班次</h3>
+      <div class="picker-btns">${btns}</div>
+      <button class="picker-cancel" onclick="closeShiftPicker()">取消</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+}
+function closeShiftPicker() {
+  document.getElementById('shiftPickerOverlay')?.remove();
+}
+function pickShift(key, shiftType) {
+  closeShiftPicker();
+  const data = loadData(currentPerson, ym());
+  const raw = data[key] || null;
+  const result = appendStatus(raw, 'shift', shiftType);
+  if (result === null) {
+    showToast('⚠️ 该日期已有缺勤/加班/全天补休/年休假全天，不能再叠加其他状态', true);
+    return;
+  }
+  data[key] = result;
+  saveData(currentPerson, ym(), data);
+  render();
+  showToast(`✅ 已登记：班次 ${shiftType}`);
 }
 
 // ── Init ──
@@ -1769,6 +1845,7 @@ function render() {
       <div class="legend-item"><div class="legend-dot" style="background:#fff7ed;border:2px solid #ea580c;"></div>超时</div>
       <div class="legend-item"><div class="legend-dot" style="background:#fff0e0;border:2px solid #c2410c;"></div>加班</div>
       <div class="legend-item"><div class="legend-dot" style="background:#e0f2f1;border:2px solid #00695c;"></div>手工单</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#fce4ec;border:2px solid #c2185b;"></div>班次</div>
     </div>
 
     <div class="stats" id="stats"></div>
@@ -2273,10 +2350,10 @@ function renderStats() {
   const statsDiv = document.getElementById('stats');
   if (viewMode === 'single') {
     const data = loadData(displayPerson, ym());
-    let c = {present:0,absent:0,late:0,leave:0,trip:0,overtime:0,overtime_day:0,manual:0};
+    let c = {present:0,absent:0,late:0,leave:0,trip:0,overtime:0,overtime_day:0,manual:0,shift:0};
     let presentTotalH = 0, tripHours = 0, leaveHalf = 0, overtimeHours = 0;
     let overtimeDayHalf = 0;
-    let manualTotal = 0;
+    let manualSheets = 0, manualDoses = 0;
     let marked = 0;
     for (const [_,v] of Object.entries(data)) {
       const statuses = parseStatuses(v);
@@ -2304,7 +2381,8 @@ function renderStats() {
             overtimeDayHalf++;
           }
           if (status === 'manual') {
-            manualTotal += parseInt(hours) || 1;
+            manualSheets += parseInt(hours) || 0;
+            manualDoses += parseInt(s.subtype) || 0;
           }
         }
       }
@@ -2324,7 +2402,8 @@ function renderStats() {
       <div class="stat-item">公差 <b>${c.trip}</b>天${tripHours > 0 ? ` (${tripHours}h)` : ''}</div>
       <div class="stat-item">超时 <b>${overtimeHours}</b>h</div>
       <div class="stat-item">加班 <b>${c.overtime_day}</b>天${overtimeDayHalf > 0 ? ` (含${overtimeDayHalf}个半天)` : ''}</div>
-      ${manualTotal > 0 ? `<div class="stat-item">手工单 <b>${manualTotal}</b>张</div>` : `<div class="stat-item">手工单 <b>0</b>张</div>`}
+      ${manualSheets > 0 || manualDoses > 0 ? `<div class="stat-item">手工单 <b>${manualSheets}</b>张${manualDoses > 0 ? ` <b>${manualDoses}</b>剂` : ''}</div>` : `<div class="stat-item">手工单 <b>0</b>张</div>`}
+      ${c.shift > 0 ? `<div class="stat-item">班次 <b>${c.shift}</b>次</div>` : `<div class="stat-item">班次 <b>0</b></div>`}
     `;
     statsDiv.innerHTML = statsHtml;
   } else {
@@ -2332,14 +2411,14 @@ function renderStats() {
     let html = `<div class="stat-item">本月共 <b>${daysInMonth}</b> 天</div>`;
     for (const p of people) {
       const data = loadData(p, ym());
-      let c = {present:0,absent:0,late:0,leave:0,trip:0,overtime:0,overtime_day:0,manual:0};
+      let c = {present:0,absent:0,late:0,leave:0,trip:0,overtime:0,overtime_day:0,manual:0,shift:0};
       for (const [_,v] of Object.entries(data)) {
         const statuses = parseStatuses(v);
         for (const s of statuses) {
           if (s.status && c.hasOwnProperty(s.status)) c[s.status]++;
         }
       }
-      html += `<div class="stat-item">${p}: 休超时假<b>${c.present}</b> 缺勤<b>${c.absent}</b> 迟到<b>${c.late}</b> 休假<b>${c.leave}</b> 公差<b>${c.trip}</b> 加班<b>${c.overtime_day}</b> 手工单<b>${c.manual}</b></div>`;
+      html += `<div class="stat-item">${p}: 休超时假<b>${c.present}</b> 缺勤<b>${c.absent}</b> 迟到<b>${c.late}</b> 休假<b>${c.leave}</b> 公差<b>${c.trip}</b> 加班<b>${c.overtime_day}</b> 手工单<b>${c.manual}</b> 班次<b>${c.shift}</b></div>`;
     }
     statsDiv.innerHTML = html;
   }
@@ -2397,13 +2476,13 @@ function calcSummary(person, ym) {
   const data = loadData(person, ym);
   let count = 0, presentH = 0, leaveDays = 0, leaveHalf = 0, overtimeH = 0;
   let overtimeDayDays = 0, overtimeDayHalf = 0;
-  let manualTotal = 0;
+  let manualSheets = 0, manualDoses = 0, shiftCount = 0;
   for (const [_, v] of Object.entries(data)) {
     const statuses = parseStatuses(v);
     if (statuses.length === 0) continue;
     count++;
     for (const s of statuses) {
-      const { status, hours } = s;
+      const { status, hours, subtype } = s;
       if (status === 'present') {
         if (!hours || hours === '全天') presentH += 8;
         else if (hours === '半天') presentH += 4;
@@ -2419,7 +2498,11 @@ function calcSummary(person, ym) {
         if (hours === '半天') overtimeDayHalf++;
       }
       if (status === 'manual') {
-        manualTotal += parseInt(hours) || 1;
+        manualSheets += parseInt(hours) || 0;
+        manualDoses += parseInt(subtype) || 0;
+      }
+      if (status === 'shift') {
+        shiftCount++;
       }
     }
   }
@@ -2428,7 +2511,7 @@ function calcSummary(person, ym) {
     leaveDays: leaveDays - leaveHalf * 0.5,
     overtimeH,
     overtimeDayDays: overtimeDayDays - overtimeDayHalf * 0.5,
-    manualTotal
+    manualSheets, manualDoses, shiftCount
   };
 }
 
@@ -2453,7 +2536,9 @@ function exportCSV() {
   csv += `休假总天数,,${s.leaveDays}天,\\n`;
   csv += `超时总时长,,${s.overtimeH}h,\n`;
   csv += `加班总天数,,${s.overtimeDayDays}天,\n`;
-  csv += `手工单总张数,,${s.manualTotal||0}张,\n`;
+  csv += `手工单总张数,,${s.manualSheets||0}张,\n`;
+  csv += `手工单总剂数,,${s.manualDoses||0}剂,\n`;
+  csv += `班次总次数,,${s.shiftCount||0}次,\n`;
   downloadCSV(csv, `考勤_${currentPerson}_${currentYear}年${currentMonth}月.csv`);
 }
 
@@ -2488,7 +2573,13 @@ function exportAllCSV() {
   for (const p of people) { const s = calcSummary(p, ym()); csv += `,${s.overtimeDayDays}`; }
   csv += '\n';
   csv += `手工单(张),,`;
-  for (const p of people) { const s = calcSummary(p, ym()); csv += `,${s.manualTotal||0}`; }
+  for (const p of people) { const s = calcSummary(p, ym()); csv += `,${s.manualSheets||0}`; }
+  csv += '\n';
+  csv += `手工单(剂),,`;
+  for (const p of people) { const s = calcSummary(p, ym()); csv += `,${s.manualDoses||0}`; }
+  csv += '\n';
+  csv += `班次(次),,`;
+  for (const p of people) { const s = calcSummary(p, ym()); csv += `,${s.shiftCount||0}`; }
   csv += '\n';
   downloadCSV(csv, `考勤_全员_${currentYear}年${currentMonth}月.csv`);
 }
@@ -2536,7 +2627,9 @@ function exportExcel() {
   allRows.push(['休假总天数', '', `${s.leaveDays}天`, '']);
   allRows.push(['超时总时长', '', `${s.overtimeH}h`, '']);
   allRows.push(['加班总天数', '', `${s.overtimeDayDays}天`, '']);
-  allRows.push(['手工单总张数', '', `${s.manualTotal||0}张`, '']);
+  allRows.push(['手工单总张数', '', `${s.manualSheets||0}张`, '']);
+  allRows.push(['手工单总剂数', '', `${s.manualDoses||0}剂`, '']);
+  allRows.push(['班次总次数', '', `${s.shiftCount||0}次`, '']);
 
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(allRows);
@@ -2578,19 +2671,25 @@ function exportAllExcel() {
   const sumRowO = ['超时(h)', ''];
   const sumRowOD = ['加班(天)', ''];
   const sumRowM = ['手工单(张)', ''];
+  const sumRowMD = ['手工单(剂)', ''];
+  const sumRowS = ['班次(次)', ''];
   for (const p of people) {
     const s = calcSummary(p, ym());
     sumRowH.push(s.presentH);
     sumRowL.push(s.leaveDays);
     sumRowO.push(s.overtimeH);
     sumRowOD.push(s.overtimeDayDays);
-    sumRowM.push(s.manualTotal||0);
+    sumRowM.push(s.manualSheets||0);
+    sumRowMD.push(s.manualDoses||0);
+    sumRowS.push(s.shiftCount||0);
   }
   allRows.push(sumRowH);
   allRows.push(sumRowL);
   allRows.push(sumRowO);
   allRows.push(sumRowOD);
   allRows.push(sumRowM);
+  allRows.push(sumRowMD);
+  allRows.push(sumRowS);
 
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(allRows);
