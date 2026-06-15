@@ -2103,6 +2103,10 @@ function renderDaysGrid() {
   const firstDay = new Date(y, m-1, 1).getDay();
   const daysInMonth = new Date(y, m, 0).getDate();
   const todayStr = dateKey(new Date().getFullYear(), new Date().getMonth()+1, new Date().getDate());
+  // 员工只能修改近3天数据（今天+前2天）
+  const threeDaysAgo = new Date();
+  threeDaysAgo.setDate(threeDaysAgo.getDate() - 2);
+  const cutoffStr = dateKey(threeDaysAgo.getFullYear(), threeDaysAgo.getMonth()+1, threeDaysAgo.getDate());
   const grid = document.getElementById('daysGrid');
   grid.innerHTML = '';
 
@@ -2163,10 +2167,12 @@ function renderDaysGrid() {
         cell.style.cursor = 'default';
         cell.title = hasAny ? `${d}日 - ${displayLabel}（👁 只读查看）` : `${d}日 - 未登记（👁 只读查看）`;
       } else {
-        // 自己的日历，可编辑
+        // 自己的日历，可编辑（限近3天）
         cell.addEventListener('click', () => {
           if (isPersonLocked(currentPerson) && !unlockedPersons.has(currentPerson)) {
             showToast('🔒 此身份已锁定，请先输入密码解锁', true);
+          } else if (key < cutoffStr) {
+            showToast('⏳ 只能修改近3天数据', true);
           } else {
             // 直接打开申报器，顶部显示已有数据（可叠加）
             showStatusPicker(key, key > todayStr, raw || null);
