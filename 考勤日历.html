@@ -2354,6 +2354,7 @@ function renderStats() {
     let presentTotalH = 0, tripHours = 0, leaveHalf = 0, overtimeHours = 0;
     let overtimeDayHalf = 0;
     let manualSheets = 0, manualDoses = 0;
+    let shiftCounts = {早班:0, 晚班:0, 出院班:0, 直落:0};
     let marked = 0;
     for (const [_,v] of Object.entries(data)) {
       const statuses = parseStatuses(v);
@@ -2384,6 +2385,9 @@ function renderStats() {
             manualSheets += parseInt(hours) || 0;
             manualDoses += parseInt(s.subtype) || 0;
           }
+          if (status === 'shift' && hours) {
+            shiftCounts[hours] = (shiftCounts[hours] || 0) + 1;
+          }
         }
       }
     }
@@ -2403,7 +2407,7 @@ function renderStats() {
       <div class="stat-item">超时 <b>${overtimeHours}</b>h</div>
       <div class="stat-item">加班 <b>${c.overtime_day}</b>天${overtimeDayHalf > 0 ? ` (含${overtimeDayHalf}个半天)` : ''}</div>
       ${manualSheets > 0 || manualDoses > 0 ? `<div class="stat-item">手工单 <b>${manualSheets}</b>张${manualDoses > 0 ? ` <b>${manualDoses}</b>剂` : ''}</div>` : `<div class="stat-item">手工单 <b>0</b>张</div>`}
-      ${c.shift > 0 ? `<div class="stat-item">班次 <b>${c.shift}</b>次</div>` : `<div class="stat-item">班次 <b>0</b></div>`}
+      ${c.shift > 0 ? `<div class="stat-item">班次 早班<b>${shiftCounts.早班||0}</b> 晚班<b>${shiftCounts.晚班||0}</b> 出院班<b>${shiftCounts.出院班||0}</b> 直落<b>${shiftCounts.直落||0}</b></div>` : `<div class="stat-item">班次 <b>0</b></div>`}
     `;
     statsDiv.innerHTML = statsHtml;
   } else {
@@ -2477,6 +2481,7 @@ function calcSummary(person, ym) {
   let count = 0, presentH = 0, leaveDays = 0, leaveHalf = 0, overtimeH = 0;
   let overtimeDayDays = 0, overtimeDayHalf = 0;
   let manualSheets = 0, manualDoses = 0, shiftCount = 0;
+  let shiftCounts = {早班:0, 晚班:0, 出院班:0, 直落:0};
   for (const [_, v] of Object.entries(data)) {
     const statuses = parseStatuses(v);
     if (statuses.length === 0) continue;
@@ -2503,6 +2508,7 @@ function calcSummary(person, ym) {
       }
       if (status === 'shift') {
         shiftCount++;
+        if (hours) shiftCounts[hours] = (shiftCounts[hours] || 0) + 1;
       }
     }
   }
@@ -2511,7 +2517,7 @@ function calcSummary(person, ym) {
     leaveDays: leaveDays - leaveHalf * 0.5,
     overtimeH,
     overtimeDayDays: overtimeDayDays - overtimeDayHalf * 0.5,
-    manualSheets, manualDoses, shiftCount
+    manualSheets, manualDoses, shiftCount, shiftCounts
   };
 }
 
@@ -2539,6 +2545,10 @@ function exportCSV() {
   csv += `手工单总张数,,${s.manualSheets||0}张,\n`;
   csv += `手工单总剂数,,${s.manualDoses||0}剂,\n`;
   csv += `班次总次数,,${s.shiftCount||0}次,\n`;
+  csv += `  早班,,${s.shiftCounts.早班||0}次,\n`;
+  csv += `  晚班,,${s.shiftCounts.晚班||0}次,\n`;
+  csv += `  出院班,,${s.shiftCounts.出院班||0}次,\n`;
+  csv += `  直落,,${s.shiftCounts.直落||0}次,\n`;
   downloadCSV(csv, `考勤_${currentPerson}_${currentYear}年${currentMonth}月.csv`);
 }
 
@@ -2580,6 +2590,18 @@ function exportAllCSV() {
   csv += '\n';
   csv += `班次(次),,`;
   for (const p of people) { const s = calcSummary(p, ym()); csv += `,${s.shiftCount||0}`; }
+  csv += '\n';
+  csv += `  早班,,`;
+  for (const p of people) { const s = calcSummary(p, ym()); csv += `,${s.shiftCounts.早班||0}`; }
+  csv += '\n';
+  csv += `  晚班,,`;
+  for (const p of people) { const s = calcSummary(p, ym()); csv += `,${s.shiftCounts.晚班||0}`; }
+  csv += '\n';
+  csv += `  出院班,,`;
+  for (const p of people) { const s = calcSummary(p, ym()); csv += `,${s.shiftCounts.出院班||0}`; }
+  csv += '\n';
+  csv += `  直落,,`;
+  for (const p of people) { const s = calcSummary(p, ym()); csv += `,${s.shiftCounts.直落||0}`; }
   csv += '\n';
   downloadCSV(csv, `考勤_全员_${currentYear}年${currentMonth}月.csv`);
 }
@@ -2630,6 +2652,10 @@ function exportExcel() {
   allRows.push(['手工单总张数', '', `${s.manualSheets||0}张`, '']);
   allRows.push(['手工单总剂数', '', `${s.manualDoses||0}剂`, '']);
   allRows.push(['班次总次数', '', `${s.shiftCount||0}次`, '']);
+  allRows.push(['  早班', '', `${s.shiftCounts.早班||0}次`, '']);
+  allRows.push(['  晚班', '', `${s.shiftCounts.晚班||0}次`, '']);
+  allRows.push(['  出院班', '', `${s.shiftCounts.出院班||0}次`, '']);
+  allRows.push(['  直落', '', `${s.shiftCounts.直落||0}次`, '']);
 
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(allRows);
@@ -2673,6 +2699,10 @@ function exportAllExcel() {
   const sumRowM = ['手工单(张)', ''];
   const sumRowMD = ['手工单(剂)', ''];
   const sumRowS = ['班次(次)', ''];
+  const sumRowSZ = ['  早班', ''];
+  const sumRowSW = ['  晚班', ''];
+  const sumRowSC = ['  出院班', ''];
+  const sumRowSZL = ['  直落', ''];
   for (const p of people) {
     const s = calcSummary(p, ym());
     sumRowH.push(s.presentH);
@@ -2682,6 +2712,10 @@ function exportAllExcel() {
     sumRowM.push(s.manualSheets||0);
     sumRowMD.push(s.manualDoses||0);
     sumRowS.push(s.shiftCount||0);
+    sumRowSZ.push(s.shiftCounts.早班||0);
+    sumRowSW.push(s.shiftCounts.晚班||0);
+    sumRowSC.push(s.shiftCounts.出院班||0);
+    sumRowSZL.push(s.shiftCounts.直落||0);
   }
   allRows.push(sumRowH);
   allRows.push(sumRowL);
@@ -2690,7 +2724,10 @@ function exportAllExcel() {
   allRows.push(sumRowM);
   allRows.push(sumRowMD);
   allRows.push(sumRowS);
-
+  allRows.push(sumRowSZ);
+  allRows.push(sumRowSW);
+  allRows.push(sumRowSC);
+  allRows.push(sumRowSZL);
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(allRows);
 
