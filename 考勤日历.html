@@ -678,8 +678,8 @@ if (_SB) {
     const _orig_init = init;
     init = async function() {
       try { await _loadAll(); } catch(e) { console.error('Supabase load error:', e); }
-      _orig_init();
-      _injectOverrides();
+      _injectOverrides();  // 先注入覆盖，让 loadPeople 读到 Supabase 数据
+      _orig_init();         // 再初始化，避免因 localStorage 为空而创建"本人"
       // 加载当前月份云端数据
       setTimeout(async () => {
         if (currentPerson && currentYear && currentMonth) {
