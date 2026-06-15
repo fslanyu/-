@@ -261,6 +261,7 @@ body {
 .team-chip.trip    { background: #f3e8ff; color: var(--purple); }
 .team-chip.overtime { background: #fff7ed; color: var(--orange); }
 .team-chip.overtime_day { background: #fff0e0; color: var(--deep-orange); }
+.team-chip.manual { background: #e0f2f1; color: #00695c; }
 
 /* Single view status colors */
 .s-present .status-badge { background: #e6f7e6; color: var(--success); }
@@ -277,6 +278,9 @@ body {
 .s-overtime { background: #fffdfb; }
 .s-overtime_day .status-badge { background: #fff0e0; color: var(--deep-orange); }
 .s-overtime_day { background: #fffcf8; }
+
+.s-manual .status-badge { background: #e0f2f1; color: #00695c; }
+.s-manual { background: #f8fdfc; }
 
 /* ── Note Panel ── */
 .note-panel {
@@ -385,6 +389,8 @@ body {
 .sheet .picker-btn.overtime:active { background: #fff7ed; }
 .sheet .picker-btn.overtime_day { border-color: var(--deep-orange); color: var(--deep-orange); }
 .sheet .picker-btn.overtime_day:active { background: #fff0e0; }
+.sheet .picker-btn.manual { border-color: #00695c; color: #00695c; }
+.sheet .picker-btn.manual:active { background: #e0f2f1; }
 .sheet .picker-cancel {
   margin-top: 12px; padding: 10px 20px; border-radius: 10px;
   border: none; background: #f0f0f0; color: #888; cursor: pointer;
@@ -720,8 +726,9 @@ const STATUS = {
   trip:    { label: '公差', cls: 's-trip' },
   overtime:{ label: '超时', cls: 's-overtime' },
   overtime_day: { label: '加班', cls: 's-overtime_day' },
+  manual:  { label: '手工单', cls: 's-manual' },
 };
-const STATUS_ORDER = ['present','absent','late','leave','trip','overtime','overtime_day'];
+const STATUS_ORDER = ['present','absent','late','leave','trip','overtime','overtime_day','manual'];
 
 // 时长选项
 const PRESENT_HOURS = ['半天', '全天', '0.5', '1', '1.5', '2', '2.5', '3', '3.5', '4', '4.5', '5', '5.5', '6', '6.5', '7'];
@@ -832,6 +839,9 @@ function formatStatus(status, hours, subtype) {
   if (subtype) {
     // 有子类型时强制带上时长字段，保证 3 段格式便于解析
     base = status + '|' + (hours || '全天') + '|' + subtype;
+  } else if (status === 'present' || status === 'leave') {
+    // present/leave 始终保留时长，确保全天互斥在 batch/cycle 后仍生效
+    base = status + '|' + (hours || '全天');
   } else if (!hours || hours === '全天') {
     base = status;
   } else {
@@ -852,6 +862,9 @@ function getDisplayLabel(raw) {
         return subtype + ' ' + hours + 'h';
       }
       return subtype;
+    }
+    if (status === 'manual') {
+      return '手工单 ' + (hours || '1') + '张';
     }
     if (hours && hours !== '全天') {
       if (hours === '半天') return label + (status === 'present' ? ' 补休半天' : ' 半天');
@@ -874,6 +887,10 @@ function parseStatuses(raw) {
 function formatMultiStatus(statusObjs) {
   return statusObjs.map(s => {
     if (s.subtype) return s.status + '|' + (s.hours || '全天') + '|' + s.subtype;
+    // present/leave 始终保留时长字段，确保全天互斥规则在保存后仍生效
+    if (s.status === 'present' || s.status === 'leave') {
+      return s.status + '|' + (s.hours || '全天');
+    }
     if (!s.hours || s.hours === '全天') return s.status;
     return s.status + '|' + s.hours;
   }).join(MULTI_SEP);
@@ -882,20 +899,31 @@ function formatMultiStatus(statusObjs) {
 // 互斥状态：缺勤和加班不能与其他状态共存
 const EXCLUSIVE_STATUSES = ['absent', 'overtime_day'];
 
+// 检查是否为"全天互斥"的特殊情况
+// 休超时假全天 / 年休假全天 → 独占，不能再叠加
+function isFullDayExclusive(statusType, hours, subtype) {
+  if (statusType === 'present' && hours === '全天') return true;
+  if (statusType === 'leave' && subtype === '年休假' && hours === '全天') return true;
+  return false;
+}
+
 // 向已有数据追加状态
 // - 缺勤/加班会清除所有其他状态，只保留自己
 // - 已有缺勤/加班时，不能再叠加其他状态
+// - 休超时假全天 / 年休假全天 也是独占状态，不能再叠加
 function appendStatus(raw, statusType, hours, subtype) {
   const existing = parseStatuses(raw);
-  const isNewExclusive = EXCLUSIVE_STATUSES.includes(statusType);
-  const hasExistingExclusive = existing.some(s => EXCLUSIVE_STATUSES.includes(s.status));
+  const isNewExclusive = EXCLUSIVE_STATUSES.includes(statusType) || isFullDayExclusive(statusType, hours, subtype);
+  const hasExistingExclusive = existing.some(s =>
+    EXCLUSIVE_STATUSES.includes(s.status) || isFullDayExclusive(s.status, s.hours, s.subtype)
+  );
 
   if (isNewExclusive) {
-    // 缺勤或加班：清除一切，只保留自己
+    // 缺勤/加班/全天补休：清除一切，只保留自己
     return formatMultiStatus([{ status: statusType, hours: hours || null, subtype: subtype || null }]);
   }
   if (hasExistingExclusive) {
-    // 已有缺勤或加班：不允许再叠加其他状态，返回 null 表示拒绝
+    // 已有独占状态：不允许再叠加其他状态，返回 null 表示拒绝
     return null;
   }
   // 正常叠加：同类型替换，不同类型共存
@@ -1206,7 +1234,7 @@ function unlockPersonPermanently(name) {
 }
 
 // ── Status Picker (non-admin: 休超时假/缺勤/迟到/休假; admin: all) ──
-function showStatusPicker(key, isFuture) {
+function showStatusPicker(key, isFuture, currentRaw) {
   const overlay = document.createElement('div');
   overlay.className = 'sheet-overlay';
   overlay.id = 'statusPickerOverlay';
@@ -1221,9 +1249,20 @@ function showStatusPicker(key, isFuture) {
     btns += `<button class="picker-btn ${status}" onclick="pickStatus('${key}','${status}')">${info.label}</button>`;
   }
 
+  // 显示当天已有数据（放大确认）
+  let currentHtml = '';
+  if (currentRaw) {
+    const lbl = getDisplayLabel(currentRaw);
+    currentHtml = `<div style="margin-bottom:10px;padding:10px 14px;background:#f0f4ff;border-radius:10px;">
+      <div style="font-size:12px;color:#888;margin-bottom:4px;">📋 当天已申报：</div>
+      <div style="font-size:16px;font-weight:600;color:#333;">${lbl}</div>
+    </div>`;
+  }
+
   overlay.innerHTML = `
     <div class="sheet"><div class="sheet-handle"></div>
-      <h3>${isFuture ? '提前申报（仅限休超时假/休假）' : (isAdmin ? '选择考勤状态' : '申报考勤（填后不可修改）')}</h3>
+      <h3>${isFuture ? '提前申报（仅限休超时假/休假）' : (isAdmin ? '选择考勤状态' : '申报考勤（可叠加多种状态）')}</h3>
+      ${currentHtml}
       <div class="picker-btns">${btns}</div>
       <button class="picker-cancel" onclick="closeStatusPicker()">取消</button>
     </div>
@@ -1233,6 +1272,49 @@ function showStatusPicker(key, isFuture) {
 
 function closeStatusPicker() {
   document.getElementById('statusPickerOverlay')?.remove();
+}
+
+// ── 日详情查看（非管理员点击已填格子：放大确认填报内容）──
+function showDayDetail(key, day, raw, note) {
+  const statuses = parseStatuses(raw);
+  const todayStr = dateKey(new Date().getFullYear(), new Date().getMonth()+1, new Date().getDate());
+  const isFuture = key > todayStr;
+  const overlay = document.createElement('div');
+  overlay.className = 'sheet-overlay';
+  overlay.id = 'dayDetailOverlay';
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeDayDetail();
+  });
+
+  let itemsHtml = '';
+  for (const s of statuses) {
+    const lbl = getDisplayLabel(formatStatus(s.status, s.hours, s.subtype));
+    const icons = {present:'🏖',absent:'❌',late:'⏰',leave:'🌴',trip:'🚗',overtime:'⏱',overtime_day:'💼',manual:'📄'};
+    itemsHtml += `<div style="font-size:18px;padding:8px 12px;background:#f8f9fa;border-radius:8px;margin:4px 0;display:flex;align-items:center;gap:8px;">
+      <span style="font-size:22px;">${icons[s.status]||'📌'}</span>
+      <span style="font-weight:600;">${lbl}</span>
+    </div>`;
+  }
+
+  overlay.innerHTML = `
+    <div class="sheet"><div class="sheet-handle"></div>
+      <h3>📅 ${currentYear}年${currentMonth}月${day}日 申报详情</h3>
+      <div style="margin:8px 0;">${itemsHtml || '<p style="color:#999;">暂无申报</p>'}</div>
+      ${note ? '<div style="margin:8px 0;padding:10px;background:#fffbe6;border-radius:8px;font-size:14px;">📝 备注：'+note+'</div>' : ''}
+      <div style="display:flex;gap:8px;margin-top:14px;">
+        <button class="btn-confirm" style="flex:1;padding:12px;border-radius:10px;border:none;background:var(--primary);color:#fff;font-size:15px;cursor:pointer;" id="dayDetailAddBtn">＋ 添加申报</button>
+        <button class="btn-cancel" style="flex:1;padding:12px;border-radius:10px;border:none;background:#f0f0f0;color:#666;font-size:15px;cursor:pointer;" onclick="closeDayDetail()">关闭</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  document.getElementById('dayDetailAddBtn').addEventListener('click', () => {
+    closeDayDetail();
+    showStatusPicker(key, isFuture, raw);
+  });
+}
+function closeDayDetail() {
+  document.getElementById('dayDetailOverlay')?.remove();
 }
 
 // ── 多状态编辑器（管理员点击已有数据的格子）──
@@ -1276,6 +1358,69 @@ function closeMultiStatusEditor() {
   document.getElementById('multiStatusOverlay')?.remove();
 }
 
+// ── 团队视图日期编辑（管理员点击团队视图格子）──
+function showTeamDayEditor(key, day, people) {
+  const overlay = document.createElement('div');
+  overlay.className = 'sheet-overlay';
+  overlay.id = 'teamDayOverlay';
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeTeamDayEditor();
+  });
+
+  let listHtml = '';
+  for (const p of people) {
+    const pdata = loadData(p, ym());
+    const raw = pdata[key] || '';
+    const statuses = parseStatuses(raw);
+    const hasData = statuses.length > 0;
+    const lbl = hasData ? statuses.map(s => getDisplayLabel(formatStatus(s.status, s.hours, s.subtype))).join(' / ') : '未登记';
+    listHtml += `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid #f0f0f0;gap:8px;">
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:15px;font-weight:600;color:#333;">${p}</div>
+        <div style="font-size:13px;color:${hasData?'#555':'#aaa'};">${lbl}</div>
+      </div>
+      <button onclick="closeTeamDayEditor();editTeamPerson('${p.replace(/'/g,"\\'")}','${key}',${day})"
+        style="padding:6px 14px;border-radius:8px;border:1px solid var(--primary);background:#fff;color:var(--primary);cursor:pointer;font-size:13px;white-space:nowrap;min-height:36px;">
+        ${hasData ? '✏️ 编辑' : '＋ 添加'}
+      </button>
+    </div>`;
+  }
+
+  overlay.innerHTML = `
+    <div class="sheet"><div class="sheet-handle"></div>
+      <h3>📅 ${currentYear}年${currentMonth}月${day}日 - 团队编辑</h3>
+      <div style="max-height:55vh;overflow-y:auto;margin:8px 0;">${listHtml}</div>
+      <button class="picker-cancel" onclick="closeTeamDayEditor()">关闭</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+}
+
+function closeTeamDayEditor() {
+  document.getElementById('teamDayOverlay')?.remove();
+}
+
+function editTeamPerson(person, key, day) {
+  // 切换到该人员的单人视图进行编辑
+  currentPerson = person;
+  saveCurrentPerson(person);
+  viewTarget = null;
+  viewMode = 'single';
+  // 渲染单人视图后打开编辑器
+  render();
+  // 渲染完成后打开编辑器
+  setTimeout(() => {
+    const data = loadData(person, ym());
+    const raw = data[key] || '';
+    if (raw) {
+      showMultiStatusEditor(key, day);
+    } else {
+      const todayStr = dateKey(new Date().getFullYear(), new Date().getMonth()+1, new Date().getDate());
+      showStatusPicker(key, key > todayStr);
+    }
+  }, 200);
+}
+
 function removeStatusFromCell(key, statusType) {
   const data = loadData(currentPerson, ym());
   const raw = data[key] || '';
@@ -1299,6 +1444,11 @@ function pickStatus(key, status) {
     showLeaveSubtypePicker(key);
     return;
   }
+  if (status === 'manual') {
+    // 手工单：弹出数量输入
+    showManualQuantityPicker(key);
+    return;
+  }
   if (status === 'present' || status === 'trip' || status === 'overtime' || status === 'overtime_day') {
     // 休超时假/公差/超时/加班弹出时长选择
     showHourPicker(key, status);
@@ -1308,7 +1458,7 @@ function pickStatus(key, status) {
   const raw = data[key] || null;
   const result = appendStatus(raw, status, null);
   if (result === null) {
-    showToast('⚠️ 该日期已有缺勤或加班，不能再叠加其他状态', true);
+    showToast('⚠️ 该日期已有缺勤/加班/全天补休/年休假全天，不能再叠加其他状态', true);
     return;
   }
   data[key] = result;
@@ -1397,7 +1547,7 @@ function pickHours(key, hours, statusType, leaveSubtype) {
   const raw = data[key] || null;
   const result = appendStatus(raw, statusType, hours, leaveSubtype);
   if (result === null) {
-    showToast('⚠️ 该日期已有缺勤或加班，不能再叠加其他状态', true);
+    showToast('⚠️ 该日期已有缺勤/加班/全天补休/年休假全天，不能再叠加其他状态', true);
     return;
   }
   data[key] = result;
@@ -1409,6 +1559,55 @@ function pickHours(key, hours, statusType, leaveSubtype) {
   else if (hours === '全天') label = statusType === 'present' ? `${name} 补休全天` : `${name} 全天`;
   else label = `${name} ${hours}h`;
   showToast(`✅ 已登记：${label}`);
+}
+
+// ── 手工单数量输入 ──
+function showManualQuantityPicker(key) {
+  const overlay = document.createElement('div');
+  overlay.className = 'sheet-overlay';
+  overlay.id = 'manualQtyOverlay';
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeManualQtyPicker();
+  });
+  overlay.innerHTML = `
+    <div class="sheet"><div class="sheet-handle"></div>
+      <h3>手工单 - 输入数量</h3>
+      <input id="manualQtyInput" type="number" min="1" max="999" value="1" placeholder="输入张数..."
+        style="width:100%;padding:12px;border:1px solid #d9d9d9;border-radius:10px;font-size:18px;text-align:center;box-sizing:border-box;">
+      <div class="sheet-btns" style="margin-top:12px;">
+        <button class="btn-cancel" onclick="closeManualQtyPicker()">取消</button>
+        <button class="btn-confirm" onclick="confirmManualQty('${key}')">确认</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  setTimeout(() => {
+    const inp = document.getElementById('manualQtyInput');
+    if (inp) { inp.focus(); inp.select(); }
+  }, 50);
+  document.getElementById('manualQtyInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') confirmManualQty(key);
+    if (e.key === 'Escape') closeManualQtyPicker();
+  });
+}
+function closeManualQtyPicker() {
+  document.getElementById('manualQtyOverlay')?.remove();
+}
+function confirmManualQty(key) {
+  const val = parseInt(document.getElementById('manualQtyInput').value, 10);
+  closeManualQtyPicker();
+  if (!val || val < 1) { showToast('请输入有效数量', true); return; }
+  const data = loadData(currentPerson, ym());
+  const raw = data[key] || null;
+  const result = appendStatus(raw, 'manual', String(val));
+  if (result === null) {
+    showToast('⚠️ 该日期已有缺勤/加班/全天补休/年休假全天，不能再叠加其他状态', true);
+    return;
+  }
+  data[key] = result;
+  saveData(currentPerson, ym(), data);
+  render();
+  showToast(`✅ 已登记：手工单 ${val}张`);
 }
 
 // ── Init ──
@@ -1569,6 +1768,7 @@ function render() {
       <div class="legend-item"><div class="legend-dot" style="background:#f3e8ff;border:2px solid #7c3aed;"></div>公差</div>
       <div class="legend-item"><div class="legend-dot" style="background:#fff7ed;border:2px solid #ea580c;"></div>超时</div>
       <div class="legend-item"><div class="legend-dot" style="background:#fff0e0;border:2px solid #c2410c;"></div>加班</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#e0f2f1;border:2px solid #00695c;"></div>手工单</div>
     </div>
 
     <div class="stats" id="stats"></div>
@@ -1891,7 +2091,8 @@ function renderDaysGrid() {
           if (isPersonLocked(currentPerson) && !unlockedPersons.has(currentPerson)) {
             showToast('🔒 此身份已锁定，请先输入密码解锁', true);
           } else {
-            showStatusPicker(key, key > todayStr);
+            // 直接打开申报器，顶部显示已有数据（可叠加）
+            showStatusPicker(key, key > todayStr, raw || null);
           }
         });
       }
@@ -1942,6 +2143,10 @@ function renderDaysGrid() {
       }
       cell.innerHTML = `<span class="day-num">${d}</span><div class="team-chips">${chips}</div>${hasNote?'<span class="note-dot"></span>':''}`;
       cell.title = `${d}日\n${chips.replace(/<[^>]+>/g,'').replace(/,/g,'\n')}`;
+      // 管理员点击团队视图格子：弹出编辑面板
+      cell.addEventListener('click', () => {
+        showTeamDayEditor(key, d, people);
+      });
       grid.appendChild(cell);
     }
     const total = firstDay + daysInMonth;
@@ -2068,9 +2273,10 @@ function renderStats() {
   const statsDiv = document.getElementById('stats');
   if (viewMode === 'single') {
     const data = loadData(displayPerson, ym());
-    let c = {present:0,absent:0,late:0,leave:0,trip:0,overtime:0,overtime_day:0};
+    let c = {present:0,absent:0,late:0,leave:0,trip:0,overtime:0,overtime_day:0,manual:0};
     let presentTotalH = 0, tripHours = 0, leaveHalf = 0, overtimeHours = 0;
     let overtimeDayHalf = 0;
+    let manualTotal = 0;
     let marked = 0;
     for (const [_,v] of Object.entries(data)) {
       const statuses = parseStatuses(v);
@@ -2097,6 +2303,9 @@ function renderStats() {
           if (status === 'overtime_day' && hours === '半天') {
             overtimeDayHalf++;
           }
+          if (status === 'manual') {
+            manualTotal += parseInt(hours) || 1;
+          }
         }
       }
     }
@@ -2115,6 +2324,7 @@ function renderStats() {
       <div class="stat-item">公差 <b>${c.trip}</b>天${tripHours > 0 ? ` (${tripHours}h)` : ''}</div>
       <div class="stat-item">超时 <b>${overtimeHours}</b>h</div>
       <div class="stat-item">加班 <b>${c.overtime_day}</b>天${overtimeDayHalf > 0 ? ` (含${overtimeDayHalf}个半天)` : ''}</div>
+      ${manualTotal > 0 ? `<div class="stat-item">手工单 <b>${manualTotal}</b>张</div>` : `<div class="stat-item">手工单 <b>0</b>张</div>`}
     `;
     statsDiv.innerHTML = statsHtml;
   } else {
@@ -2122,14 +2332,14 @@ function renderStats() {
     let html = `<div class="stat-item">本月共 <b>${daysInMonth}</b> 天</div>`;
     for (const p of people) {
       const data = loadData(p, ym());
-      let c = {present:0,absent:0,late:0,leave:0,trip:0,overtime:0,overtime_day:0};
+      let c = {present:0,absent:0,late:0,leave:0,trip:0,overtime:0,overtime_day:0,manual:0};
       for (const [_,v] of Object.entries(data)) {
         const statuses = parseStatuses(v);
         for (const s of statuses) {
           if (s.status && c.hasOwnProperty(s.status)) c[s.status]++;
         }
       }
-      html += `<div class="stat-item">${p}: 休超时假<b>${c.present}</b> 缺勤<b>${c.absent}</b> 迟到<b>${c.late}</b> 休假<b>${c.leave}</b> 公差<b>${c.trip}</b> 加班<b>${c.overtime_day}</b></div>`;
+      html += `<div class="stat-item">${p}: 休超时假<b>${c.present}</b> 缺勤<b>${c.absent}</b> 迟到<b>${c.late}</b> 休假<b>${c.leave}</b> 公差<b>${c.trip}</b> 加班<b>${c.overtime_day}</b> 手工单<b>${c.manual}</b></div>`;
     }
     statsDiv.innerHTML = html;
   }
@@ -2187,6 +2397,7 @@ function calcSummary(person, ym) {
   const data = loadData(person, ym);
   let count = 0, presentH = 0, leaveDays = 0, leaveHalf = 0, overtimeH = 0;
   let overtimeDayDays = 0, overtimeDayHalf = 0;
+  let manualTotal = 0;
   for (const [_, v] of Object.entries(data)) {
     const statuses = parseStatuses(v);
     if (statuses.length === 0) continue;
@@ -2207,13 +2418,17 @@ function calcSummary(person, ym) {
         overtimeDayDays++;
         if (hours === '半天') overtimeDayHalf++;
       }
+      if (status === 'manual') {
+        manualTotal += parseInt(hours) || 1;
+      }
     }
   }
   return {
     count, presentH,
     leaveDays: leaveDays - leaveHalf * 0.5,
     overtimeH,
-    overtimeDayDays: overtimeDayDays - overtimeDayHalf * 0.5
+    overtimeDayDays: overtimeDayDays - overtimeDayHalf * 0.5,
+    manualTotal
   };
 }
 
@@ -2238,6 +2453,7 @@ function exportCSV() {
   csv += `休假总天数,,${s.leaveDays}天,\\n`;
   csv += `超时总时长,,${s.overtimeH}h,\n`;
   csv += `加班总天数,,${s.overtimeDayDays}天,\n`;
+  csv += `手工单总张数,,${s.manualTotal||0}张,\n`;
   downloadCSV(csv, `考勤_${currentPerson}_${currentYear}年${currentMonth}月.csv`);
 }
 
@@ -2270,6 +2486,9 @@ function exportAllCSV() {
   csv += '\n';
   csv += `加班(天),,`;
   for (const p of people) { const s = calcSummary(p, ym()); csv += `,${s.overtimeDayDays}`; }
+  csv += '\n';
+  csv += `手工单(张),,`;
+  for (const p of people) { const s = calcSummary(p, ym()); csv += `,${s.manualTotal||0}`; }
   csv += '\n';
   downloadCSV(csv, `考勤_全员_${currentYear}年${currentMonth}月.csv`);
 }
@@ -2317,6 +2536,7 @@ function exportExcel() {
   allRows.push(['休假总天数', '', `${s.leaveDays}天`, '']);
   allRows.push(['超时总时长', '', `${s.overtimeH}h`, '']);
   allRows.push(['加班总天数', '', `${s.overtimeDayDays}天`, '']);
+  allRows.push(['手工单总张数', '', `${s.manualTotal||0}张`, '']);
 
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(allRows);
@@ -2357,17 +2577,20 @@ function exportAllExcel() {
   const sumRowL = ['休假(天)', ''];
   const sumRowO = ['超时(h)', ''];
   const sumRowOD = ['加班(天)', ''];
+  const sumRowM = ['手工单(张)', ''];
   for (const p of people) {
     const s = calcSummary(p, ym());
     sumRowH.push(s.presentH);
     sumRowL.push(s.leaveDays);
     sumRowO.push(s.overtimeH);
     sumRowOD.push(s.overtimeDayDays);
+    sumRowM.push(s.manualTotal||0);
   }
   allRows.push(sumRowH);
   allRows.push(sumRowL);
   allRows.push(sumRowO);
   allRows.push(sumRowOD);
+  allRows.push(sumRowM);
 
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(allRows);
