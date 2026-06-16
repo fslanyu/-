@@ -542,13 +542,21 @@ if (_SB) {
         Prefer: 'return=minimal' } });
   }
 
-  // 从 Supabase 加载
-  async function _loadAll() {
-    const [ppl, pins, cfg] = await Promise.all([
-      _sGET('people?select=name&order=name'), _sGET('pins?select=*'), _sGET('config?select=*') ]);
-    _C.people = ppl.map(r => r.name);
-    for (const r of pins) _C.pinMap[r.person] = { locked: true, pin: r.pin };
-    for (const r of cfg) _C.configMap[r.key] = r.value;
+  // 从 Supabase 加载（带重试：部分网络首次连不上，最多试3次）
+  function _sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+  async function _loadAll(retries = 3) {
+    let lastErr;
+    for (let i = 0; i < retries; i++) {
+      try {
+        const [ppl, pins, cfg] = await Promise.all([
+          _sGET('people?select=name&order=name'), _sGET('pins?select=*'), _sGET('config?select=*') ]);
+        _C.people = ppl.map(r => r.name);
+        for (const r of pins) _C.pinMap[r.person] = { locked: true, pin: r.pin };
+        for (const r of cfg) _C.configMap[r.key] = r.value;
+        return; // 成功
+      } catch(e) { lastErr = e; if (i < retries - 1) await _sleep(2000 * (i + 1)); }
+    }
+    throw lastErr; // 全部失败才抛
   }
 
   // 延迟注入（等原始函数定义后覆盖）
@@ -677,9 +685,17 @@ if (_SB) {
   setTimeout(() => {
     const _orig_init = init;
     init = async function() {
-      try { await _loadAll(); } catch(e) { console.error('Supabase load error:', e); }
+      // 重试加载 Supabase 数据（部分网络慢，首次可能超时）
+      let loaded = false;
+      for (let i = 0; i < 3; i++) {
+        try { await _loadAll(1); loaded = true; break; }
+        catch(e) { console.error('Supabase load retry '+(i+1)+':', e); if (i < 2) await _sleep(3000*(i+1)); }
+      }
       _injectOverrides();  // 先注入覆盖，让 loadPeople 读到 Supabase 数据
-      _orig_init();         // 再初始化，避免因 localStorage 为空而创建"本人"
+      _orig_init();         // 再初始化，网络不通时会用 localStorage 兜底
+      // 标记：是否因网络问题降级（人员列表为空）
+      let degraded = !_C.people || !_C.people.length;
+
       // 加载当前月份云端数据
       setTimeout(async () => {
         if (currentPerson && currentYear && currentMonth) {
@@ -698,19 +714,35 @@ if (_SB) {
           } catch(e) {}
         }
       }, 500);
-      // 实时轮询（每10秒）
+      // 实时轮询（每10秒）+ 网络恢复自动补全人员列表
       setInterval(async () => {
         if (!currentPerson || !currentYear || !currentMonth) return;
         const ym = currentYear + '-' + String(currentMonth).padStart(2,'0'), enc = encodeURIComponent;
         // 轮询当前身份 + 查看目标的数据
         const pollPeople = viewTarget ? [currentPerson, viewTarget] : [currentPerson];
+        let pollOk = false;
         for (const p of pollPeople) {
           try {
             const rows = await _sGET(`attendance?select=day_key,status_data&person=eq.${enc(p)}&year_month=eq.${ym}`);
             const nd = {}; for (const r of rows) nd[r.day_key] = r.status_data;
             const ck = `${p}|${ym}`;
             if (JSON.stringify(nd) !== JSON.stringify(_C.dataCache[ck] || {})) { _C.dataCache[ck] = nd; }
+            pollOk = true;
           } catch(e) {}
+        }
+        // 网络恢复 → 重新加载人员列表（解决首次打开网络不通只显示"本人"的问题）
+        if (degraded && pollOk) {
+          try { await _loadAll(1); degraded = !(_C.people && _C.people.length); }
+          catch(e) {}
+          if (!degraded) {
+            // 人员列表已恢复，如果当前是"本人"则切换到第一个真实人员
+            if (currentPerson === '本人' && _C.people.length > 0) {
+              currentPerson = _C.people[0];
+              saveCurrentPerson(currentPerson);
+            }
+            render();
+            return;
+          }
         }
         render();
       }, 10000);
