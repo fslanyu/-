@@ -867,15 +867,18 @@ function dateKey(y,m,d) { return `${y}-${String(m).padStart(2,'0')}-${String(d).
 // ── 休假时长处理 ──
 // 数据格式: "present" = 全天, "present|4" = 4小时
 function parseStatus(raw) {
-  if (!raw) return { status: null, hours: null, subtype: null };
+  if (!raw) return { status: null, hours: null, subtype: null, admin: false };
   const parts = raw.split('|');
-  const status = parts[0];
-  const hours = parts[1] || null;
-  const subtype = (status === 'leave' && parts.length >= 3) ? parts[2] :
-                 (status === 'manual' && parts.length >= 3) ? parts[2] : null;
-  return { status, hours, subtype };
+  // 检测末尾 |admin 标记（管理员填报/修改的数据，员工不可删）
+  const lastIsAdmin = parts.length >= 2 && parts[parts.length - 1] === 'admin';
+  const dataParts = lastIsAdmin ? parts.slice(0, -1) : parts;
+  const status = dataParts[0];
+  const hours = dataParts[1] || null;
+  const subtype = (status === 'leave' && dataParts.length >= 3) ? dataParts[2] :
+                 (status === 'manual' && dataParts.length >= 3) ? dataParts[2] : null;
+  return { status, hours, subtype, admin: lastIsAdmin };
 }
-function formatStatus(status, hours, subtype) {
+function formatStatus(status, hours, subtype, admin) {
   let base;
   if (subtype) {
     // 有子类型时强制带上时长字段，保证 3 段格式便于解析
@@ -888,6 +891,7 @@ function formatStatus(status, hours, subtype) {
   } else {
     base = status + '|' + hours;
   }
+  if (admin) base += '|admin';
   return base;
 }
 function getDisplayLabel(raw) {
@@ -933,13 +937,13 @@ function parseStatuses(raw) {
 // 格式化多状态字符串
 function formatMultiStatus(statusObjs) {
   return statusObjs.map(s => {
-    if (s.subtype) return s.status + '|' + (s.hours || '全天') + '|' + s.subtype;
+    if (s.subtype) return s.status + '|' + (s.hours || '全天') + '|' + s.subtype + (s.admin ? '|admin' : '');
     // present/leave 始终保留时长字段，确保全天互斥规则在保存后仍生效
     if (s.status === 'present' || s.status === 'leave') {
-      return s.status + '|' + (s.hours || '全天');
+      return s.status + '|' + (s.hours || '全天') + (s.admin ? '|admin' : '');
     }
-    if (!s.hours || s.hours === '全天') return s.status;
-    return s.status + '|' + s.hours;
+    if (!s.hours || s.hours === '全天') return s.status + (s.admin ? '|admin' : '');
+    return s.status + '|' + s.hours + (s.admin ? '|admin' : '');
   }).join(MULTI_SEP);
 }
 
@@ -966,16 +970,25 @@ function appendStatus(raw, statusType, hours, subtype) {
   );
 
   if (isNewExclusive) {
+    // 非管理员：检查是否有管理员填报的条目被清除
+    if (!isAdmin && existing.some(s => s.admin)) {
+      return '__ADMIN_PROTECTED__';
+    }
     // 缺勤/加班/全天补休：清除一切，只保留自己
-    return formatMultiStatus([{ status: statusType, hours: hours || null, subtype: subtype || null }]);
+    return formatMultiStatus([{ status: statusType, hours: hours || null, subtype: subtype || null, admin: !!isAdmin }]);
   }
   if (hasExistingExclusive) {
     // 已有独占状态：不允许再叠加其他状态，返回 null 表示拒绝
     return null;
   }
+  // 检查是否有同类型的管理员条目被覆盖
+  const sameTypeAdmin = existing.find(s => s.status === statusType && s.admin);
+  if (sameTypeAdmin && !isAdmin) {
+    return '__ADMIN_PROTECTED__';
+  }
   // 正常叠加：同类型替换，不同类型共存
   const filtered = existing.filter(s => s.status !== statusType);
-  filtered.push({ status: statusType, hours: hours || null, subtype: subtype || null });
+  filtered.push({ status: statusType, hours: hours || null, subtype: subtype || null, admin: !!isAdmin });
   return formatMultiStatus(filtered);
 }
 
@@ -1472,6 +1485,12 @@ function removeStatusFromCell(key, statusType) {
   const data = loadData(currentPerson, ym());
   const raw = data[key] || '';
   const existing = parseStatuses(raw);
+  // 检查是否要删除管理员填报的条目
+  const target = existing.find(s => s.status === statusType);
+  if (target && target.admin && !isAdmin) {
+    showToast('🔒 此条目由管理员填报，无法删除', true);
+    return;
+  }
   const filtered = existing.filter(s => s.status !== statusType);
   if (filtered.length === 0) {
     delete data[key];
@@ -1511,6 +1530,10 @@ function pickStatus(key, status) {
   const result = appendStatus(raw, status, null);
   if (result === null) {
     showToast('⚠️ 该日期已有缺勤/加班/全天补休/年休假全天，不能再叠加其他状态', true);
+    return;
+  }
+  if (result === '__ADMIN_PROTECTED__') {
+    showToast('🔒 此日期含管理员填报数据，无法覆盖或删除', true);
     return;
   }
   data[key] = result;
@@ -1602,6 +1625,10 @@ function pickHours(key, hours, statusType, leaveSubtype) {
     showToast('⚠️ 该日期已有缺勤/加班/全天补休/年休假全天，不能再叠加其他状态', true);
     return;
   }
+  if (result === '__ADMIN_PROTECTED__') {
+    showToast('🔒 此日期含管理员填报数据，无法覆盖或删除', true);
+    return;
+  }
   data[key] = result;
   saveData(currentPerson, ym(), data);
   render();
@@ -1672,6 +1699,10 @@ function confirmManualQty(key) {
     showToast('⚠️ 该日期已有缺勤/加班/全天补休/年休假全天，不能再叠加其他状态', true);
     return;
   }
+  if (result === '__ADMIN_PROTECTED__') {
+    showToast('🔒 此日期含管理员填报数据，无法覆盖或删除', true);
+    return;
+  }
   data[key] = result;
   saveData(currentPerson, ym(), data);
   render();
@@ -1711,6 +1742,10 @@ function pickShift(key, shiftType) {
   const result = appendStatus(raw, 'shift', shiftType);
   if (result === null) {
     showToast('⚠️ 该日期已有缺勤/加班/全天补休/年休假全天，不能再叠加其他状态', true);
+    return;
+  }
+  if (result === '__ADMIN_PROTECTED__') {
+    showToast('🔒 此日期含管理员填报数据，无法覆盖或删除', true);
     return;
   }
   data[key] = result;
@@ -2297,7 +2332,7 @@ function cycleStatus(key) {
   }
   if (next) {
     const defHours = next === 'overtime' ? '2' : (next === 'trip' ? '1' : '全天');
-    data[key] = (next === 'present' || next === 'trip' || next === 'leave' || next === 'overtime' || next === 'overtime_day') ? formatStatus(next, defHours) : next;
+    data[key] = (next === 'present' || next === 'trip' || next === 'leave' || next === 'overtime' || next === 'overtime_day') ? formatStatus(next, defHours, null, true) : (next + '|admin');
   }
   else delete data[key];
   saveData(currentPerson, ym(), data);
@@ -2508,7 +2543,7 @@ function batchSet(status) {
   const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
   const data = {};
   const defHours = status === 'overtime' ? '2' : '全天';
-  const val = (status === 'present' || status === 'trip' || status === 'leave' || status === 'overtime' || status === 'overtime_day') ? formatStatus(status, defHours) : status;
+  const val = (status === 'present' || status === 'trip' || status === 'leave' || status === 'overtime' || status === 'overtime_day') ? formatStatus(status, defHours, null, true) : (status + '|admin');
   for (let d=1; d<=daysInMonth; d++) data[dateKey(currentYear, currentMonth, d)] = val;
   saveData(currentPerson, ym(), data);
   render();
