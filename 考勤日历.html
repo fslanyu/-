@@ -358,6 +358,7 @@ body {
 .sheet {
   background: var(--card); border-radius: 18px 18px 0 0;
   width: 100%; max-width: 480px; margin: 0 auto;
+  padding: 20px 18px 20px 18px; /* iOS <15.4 fallback */
   padding: 20px 18px max(20px, env(safe-area-inset-bottom, 20px)) 18px;
   box-shadow: 0 -4px 20px rgba(0,0,0,0.12);
   animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
@@ -461,7 +462,7 @@ body {
   .status-badge { font-size: 10px; padding: 1px 5px; }
   .header h1 { font-size: 18px; }
   .nav button { width: 40px; height: 40px; }
-  .sheet { max-width: 480px; padding: 24px 20px max(24px, env(safe-area-inset-bottom, 24px)) 20px; }
+  .sheet { max-width: 480px; padding: 24px 20px 24px 20px; padding: 24px 20px max(24px, env(safe-area-inset-bottom, 24px)) 20px; }
 }
 
 /* Desktop (960px+) */
