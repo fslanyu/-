@@ -2964,42 +2964,30 @@ function restoreEmbeddedData() {
 }
 </script>
 <script>
-// PWA Service Worker — 带更新检测和自动刷新
-const APP_VERSION = '2026.06.17-v3';
-console.log('考勤日历 v' + APP_VERSION);
-if ('serviceWorker' in navigator) {
+// Service Worker 自毁机制：解决 iOS 缓存死锁
+// 本次访问注册自毁 SW，下次访问不再注册
+const APP_VERSION = '2026.06.17-destroy';
+(function() {
+  if (sessionStorage.getItem('_sw_destroyed') === APP_VERSION) {
+    // SW 已自毁，不再注册
+    console.log('SW 已清除，跳过注册');
+    return;
+  }
+  if (!('serviceWorker' in navigator)) return;
   navigator.serviceWorker.register('/sw.js').then(r => {
-    console.log('SW registered:', r.scope);
-    // 检测 SW 更新：如果新 SW 在等待，提示用户刷新
-    r.addEventListener('updatefound', () => {
-      const newWorker = r.installing;
-      if (!newWorker) return;
-      newWorker.addEventListener('statechange', () => {
-        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-          console.log('新版已就绪，即将刷新...');
-          // 提示并自动刷新
-          if (confirm('考勤日历有新版本，是否刷新？')) {
-            window.location.reload();
-          }
+    console.log('SW registered (自毁版)');
+    // 监听 SW 自毁完成
+    const checkUnregistered = setInterval(() => {
+      navigator.serviceWorker.getRegistration().then(reg => {
+        if (!reg) {
+          clearInterval(checkUnregistered);
+          sessionStorage.setItem('_sw_destroyed', APP_VERSION);
+          console.log('SW 自毁完成，下次访问不再加载 SW');
         }
       });
-    });
-  }).catch(e => console.log('SW failed:', e));
-
-  // 如果 SW 控制页面但版本不匹配，强制清除并刷新
-  if (navigator.serviceWorker.controller) {
-    const v = sessionStorage.getItem('_app_v');
-    if (v && v !== APP_VERSION) {
-      console.log('检测到版本更新，清除缓存...');
-      caches.keys().then(keys => keys.forEach(k => caches.delete(k)));
-      navigator.serviceWorker.getRegistrations().then(regs => regs.forEach(r => r.unregister()));
-      sessionStorage.setItem('_app_v', APP_VERSION);
-      setTimeout(() => window.location.reload(), 500);
-    } else {
-      sessionStorage.setItem('_app_v', APP_VERSION);
-    }
-  }
-}
+    }, 500);
+  }).catch(e => console.log('SW 注册失败:', e));
+})();
 </script>
 </body>
 </html>

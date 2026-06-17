@@ -1,27 +1,28 @@
-// 考勤日历 PWA Service Worker - v3
-const CACHE = 'kaoqin-v3';  // v3: 强制清除所有旧缓存
-const ASSETS = ['/', '/index.html'];
+// 考勤日历 PWA Service Worker — 自毁版
+// 此版本会清除所有缓存并注销 SW，解决 iOS 15 缓存死锁
+const CACHE = 'kaoqin-destroy';
 
 self.addEventListener('install', e => {
-  e.waitUntil(
-    caches.open(CACHE).then(c => c.addAll(ASSETS))
-  );
-  self.skipWaiting(); // 立即激活，不等旧标签关闭
+  self.skipWaiting(); // 立即激活
 });
 
 self.addEventListener('activate', e => {
-  // 清除所有旧版本缓存
+  // 删除所有缓存
   e.waitUntil(
-    caches.keys().then(keys => Promise.all(
-      keys.filter(k => k.startsWith('kaoqin-')).map(k => caches.delete(k))
-    ))
+    caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k))))
+      .then(() => {
+        // 注销所有 SW 注册
+        return self.registration.unregister();
+      })
+      .then(() => {
+        console.log('SW 已自毁，缓存已清空');
+      })
   );
-  clients.claim(); // 立即接管所有打开的页面
+  // 不调用 clients.claim() —— 让当前页面保持不变
+  // 下次加载页面时将没有 SW 拦截
 });
 
+// 不拦截任何请求（此 SW 在激活后立即自毁）
 self.addEventListener('fetch', e => {
-  // 网络优先：绕过缓存，只在离线时用缓存兜底
-  e.respondWith(
-    fetch(e.request).catch(() => caches.match(e.request))
-  );
+  e.respondWith(fetch(e.request));
 });
