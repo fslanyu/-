@@ -2241,8 +2241,11 @@ function renderDaysGrid() {
             showToast('🔒 此身份已锁定，请先输入密码解锁', true);
           } else if (key < cutoffStr) {
             showToast('⏳ 只能修改近3天数据', true);
+          } else if (hasAny) {
+            // 已有数据：打开编辑器（可删除自己的条目、添加新状态）
+            showMultiStatusEditor(key, d);
           } else {
-            // 直接打开申报器，顶部显示已有数据（可叠加）
+            // 空白日期：直接打开申报器
             showStatusPicker(key, key > todayStr, raw || null);
           }
         });
