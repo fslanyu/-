@@ -986,7 +986,13 @@ function appendStatus(raw, statusType, hours, subtype) {
   if (sameTypeAdmin && !isAdmin) {
     return '__ADMIN_PROTECTED__';
   }
-  // 正常叠加：同类型替换，不同类型共存
+  // 正常叠加：同类型替换，不同类型共存（班次例外：允许叠加多个不同班次）
+  if (statusType === 'shift') {
+    // 班次叠加：不替换已有班次；相同班次去重
+    if (existing.some(s => s.status === 'shift' && s.hours === hours)) return '__DUPLICATE__';
+    existing.push({ status: statusType, hours: hours || null, subtype: subtype || null, admin: !!isAdmin });
+    return formatMultiStatus(existing);
+  }
   const filtered = existing.filter(s => s.status !== statusType);
   filtered.push({ status: statusType, hours: hours || null, subtype: subtype || null, admin: !!isAdmin });
   return formatMultiStatus(filtered);
@@ -1396,7 +1402,7 @@ function showMultiStatusEditor(key, day) {
     const lbl = getDisplayLabel(formatStatus(s.status, s.hours, s.subtype));
     itemsHtml += `<div class="multi-item">
       <span class="multi-label">${lbl}</span>
-      <button class="multi-del" onclick="removeStatusFromCell('${key}','${s.status}')">✕</button>
+      <button class="multi-del" onclick="removeStatusFromCell('${key}','${s.status}','${s.hours || ''}')">✕</button>
     </div>`;
   }
 
@@ -1481,17 +1487,27 @@ function editTeamPerson(person, key, day) {
   }, 200);
 }
 
-function removeStatusFromCell(key, statusType) {
+function removeStatusFromCell(key, statusType, hours) {
   const data = loadData(currentPerson, ym());
   const raw = data[key] || '';
   const existing = parseStatuses(raw);
   // 检查是否要删除管理员填报的条目
-  const target = existing.find(s => s.status === statusType);
+  let target;
+  if (statusType === 'shift' && hours) {
+    target = existing.find(s => s.status === statusType && s.hours === hours);
+  } else {
+    target = existing.find(s => s.status === statusType);
+  }
   if (target && target.admin && !isAdmin) {
     showToast('🔒 此条目由管理员填报，无法删除', true);
     return;
   }
-  const filtered = existing.filter(s => s.status !== statusType);
+  let filtered;
+  if (statusType === 'shift' && hours) {
+    filtered = existing.filter(s => !(s.status === statusType && s.hours === hours));
+  } else {
+    filtered = existing.filter(s => s.status !== statusType);
+  }
   if (filtered.length === 0) {
     delete data[key];
   } else {
@@ -1500,7 +1516,8 @@ function removeStatusFromCell(key, statusType) {
   saveData(currentPerson, ym(), data);
   closeMultiStatusEditor();
   render();
-  showToast(`✅ 已移除：${STATUS[statusType]?.label || statusType}`);
+  const label = STATUS[statusType]?.label || statusType;
+  showToast(`✅ 已移除：${hours ? label + ' ' + hours : label}`);
 }
 
 function pickStatus(key, status) {
@@ -1746,6 +1763,10 @@ function pickShift(key, shiftType) {
   }
   if (result === '__ADMIN_PROTECTED__') {
     showToast('🔒 此日期含管理员填报数据，无法覆盖或删除', true);
+    return;
+  }
+  if (result === '__DUPLICATE__') {
+    showToast('⚠️ 该班次已存在，无需重复添加', true);
     return;
   }
   data[key] = result;
