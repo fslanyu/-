@@ -796,6 +796,46 @@ function saveAdminUsers(users) {
   localStorage.setItem(STORAGE_ADMIN_USERS, JSON.stringify(users));
 }
 
+// ── 年休假额度管理 ──
+const STORAGE_LEAVE_QUOTAS = 'attendance_leave_quotas';
+
+function loadLeaveQuotas() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_LEAVE_QUOTAS) || '{}'); }
+  catch { return {}; }
+}
+
+function saveLeaveQuotas(quotas) {
+  localStorage.setItem(STORAGE_LEAVE_QUOTAS, JSON.stringify(quotas));
+}
+
+// 计算某人某年的年休假已休天数（跨所有月份）
+function calcAnnualLeaveUsed(person, year) {
+  let used = 0;
+  for (let m = 1; m <= 12; m++) {
+    const ym = year + '-' + String(m).padStart(2, '0');
+    const data = loadData(person, ym);
+    for (const [_, v] of Object.entries(data)) {
+      const statuses = parseStatuses(v);
+      for (const s of statuses) {
+        if (s.status === 'leave' && s.subtype === '年休假') {
+          used += (s.hours === '半天') ? 0.5 : 1;
+        }
+      }
+    }
+  }
+  return used;
+}
+
+// 获取某人的年休假额度信息 { total, used, remaining, hasQuota }
+function getPersonLeaveQuota(person) {
+  const quotas = loadLeaveQuotas();
+  const q = quotas[person];
+  if (!q || !q.total) return { total: 0, used: 0, remaining: 0, hasQuota: false };
+  const year = q.year || currentYear;
+  const used = calcAnnualLeaveUsed(person, year);
+  return { total: q.total, used, remaining: Math.max(0, q.total - used), hasQuota: true, year };
+}
+
 let currentYear, currentMonth, currentPerson, viewMode = 'single';
 let viewTarget = null;  // 非管理员查看目标（person名），null=看自己
 let activeDate = null;
@@ -1297,6 +1337,64 @@ function unlockPersonPermanently(name) {
       showToast('❌ 密码错误', true);
     }
   });
+}
+
+// ── 年休假额度管理弹窗（仅管理员） ──
+function showLeaveQuotaManager() {
+  if (!isAdmin) return;
+  const people = loadPeople();
+  const quotas = loadLeaveQuotas();
+  const overlay = document.createElement('div');
+  overlay.className = 'sheet-overlay';
+  overlay.id = 'quotaManagerOverlay';
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeQuotaManager();
+  });
+  let rowsHtml = '';
+  for (const p of people) {
+    const q = quotas[p] || {};
+    const total = q.total || '';
+    const year = q.year || currentYear;
+    rowsHtml += `
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #f0f0f0;">
+        <span style="min-width:60px;font-weight:600;">${p}</span>
+        <input id="quota_${p.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g,'_')}" type="number" min="0" max="30" step="0.5" value="${total}" placeholder="额度(天)" style="width:80px;padding:6px;border:1px solid #ddd;border-radius:6px;font-size:14px;">
+        <span style="font-size:12px;color:#888;">天/年 (${year})</span>
+      </div>`;
+  }
+  overlay.innerHTML = `
+    <div class="sheet" style="max-height:80vh;overflow-y:auto;"><div class="sheet-handle"></div>
+      <h3>🏖 管理年休假额度</h3>
+      <p style="font-size:12px;color:#888;margin-bottom:8px;">设置每人每年的年休假总额（天）。留空表示未设置。</p>
+      ${rowsHtml}
+      <div class="sheet-btns" style="margin-top:12px;">
+        <button class="btn-cancel" onclick="closeQuotaManager()">取消</button>
+        <button class="btn-confirm" onclick="saveQuotaManager()">💾 保存</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+}
+
+function saveQuotaManager() {
+  const people = loadPeople();
+  const quotas = {};
+  for (const p of people) {
+    const el = document.getElementById('quota_' + p.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g,'_'));
+    if (!el) continue;
+    const val = parseFloat(el.value);
+    if (!isNaN(val) && val >= 0) {
+      quotas[p] = { total: val, year: currentYear };
+    }
+  }
+  saveLeaveQuotas(quotas);
+  closeQuotaManager();
+  showToast('✅ 年休假额度已保存');
+  render();
+}
+
+function closeQuotaManager() {
+  document.getElementById('quotaManagerOverlay')?.remove();
 }
 
 // ── Status Picker (non-admin: 休超时假/缺勤/迟到/休假; admin: all) ──
@@ -1966,6 +2064,7 @@ function render() {
       <button onclick="window.print()">打印</button>
       ${isAdmin ? '<button class="btn-export" onclick="exportAllExcel()">导出全员 Excel</button>' : ''}
       ${isAdmin ? '<button onclick="exportAllCSV()">导出全员 CSV</button>' : ''}
+      ${isAdmin ? '<button onclick="showLeaveQuotaManager()" style="background:#f59e0b;color:#fff;border-color:#f59e0b;">🏖 管理年休假额度</button>' : ''}
       <span style="flex:1"></span>
       <button onclick="exportFullBackup()" style="background:#10b981;color:#fff;border-color:#10b981;">💾 备份数据</button>
       <button onclick="importFullBackup()">📥 恢复数据</button>
@@ -2494,6 +2593,7 @@ function renderStats() {
       <div class="stat-item" style="background:#f0f4ff;padding:4px 10px;border-radius:6px;flex-basis:100%;">
         📊 休超时假共 <b>${presentTotalH}</b>h | 休假共 <b>${leaveTotalDays}</b>天 | 超时共 <b>${overtimeHours}</b>h
       </div>
+      ${(() => { const q = getPersonLeaveQuota(displayPerson); return q.hasQuota ? `<div class="stat-item" style="background:#fff7ed;padding:4px 10px;border-radius:6px;flex-basis:100%;">🏖 年休假：已休 <b>${q.used}</b> 天 / 总额 <b>${q.total}</b> 天 / 剩余 <b>${q.remaining}</b> 天</div>` : ''; })()}
       <div class="stat-item">👤 <b>${displayPerson}</b>${viewTarget ? ' <span style="font-size:10px;color:#e67e22;">(👁只读)</span>' : ''}</div>
       <div class="stat-item">本月共 <b>${daysInMonth}</b> 天</div>
       <div class="stat-item">已登记 <b>${marked}</b></div>
@@ -2520,7 +2620,7 @@ function renderStats() {
           if (s.status && c.hasOwnProperty(s.status)) c[s.status]++;
         }
       }
-      html += `<div class="stat-item">${p}: 休超时假<b>${c.present}</b> 缺勤<b>${c.absent}</b> 迟到<b>${c.late}</b> 休假<b>${c.leave}</b> 公差<b>${c.trip}</b> 加班<b>${c.overtime_day}</b> 手工单<b>${c.manual}</b> 班次<b>${c.shift}</b></div>`;
+      html += `<div class="stat-item">${p}: 休超时假<b>${c.present}</b> 缺勤<b>${c.absent}</b> 迟到<b>${c.late}</b> 休假<b>${c.leave}</b> 公差<b>${c.trip}</b> 加班<b>${c.overtime_day}</b> 手工单<b>${c.manual}</b> 班次<b>${c.shift}</b>${(() => { const q = getPersonLeaveQuota(p); return q.hasQuota ? ` 🏖<b>${q.used}/${q.total}</b>` : ''; })()}</div>`;
     }
     statsDiv.innerHTML = html;
   }
