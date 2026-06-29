@@ -2905,7 +2905,7 @@ function renderStats() {
       ${prepMedCount > 0 ? `<div class="stat-item">挑药 <b>${prepMedCount}</b>剂</div>` : `<div class="stat-item">挑药 <b>0</b>剂</div>`}
       ${c.shift > 0 ? `<div class="stat-item">班次 早班<b>${shiftCounts.早班||0}</b> 晚班<b>${shiftCounts.晚班||0}</b> 出院班<b>${shiftCounts.出院班||0}</b> 直落<b>${shiftCounts.直落||0}</b></div>` : `<div class="stat-item">班次 <b>0</b></div>`}
       <div class="stat-item">总剂数 <b>${(manualDoses + dischargeCount*0.6 + prepMedCount*1.5 + (shiftCounts.早班||0)*100 + (shiftCounts.晚班||0)*300 + (shiftCounts.出院班||0)*50).toFixed(1)}</b>剂</div>
-      <div class="stat-item">总条目数 <b>${marked * 13}</b>条</div>
+      <div class="stat-item">总条目数 <b>${((manualDoses + dischargeCount*0.6 + prepMedCount*1.5 + (shiftCounts.早班||0)*100 + (shiftCounts.晚班||0)*300 + (shiftCounts.出院班||0)*50) * 13).toFixed(1)}</b>条</div>
     `;
     statsDiv.innerHTML = statsHtml;
   } else {
@@ -3028,7 +3028,8 @@ function calcSummary(person, ym) {
     dischargeCount, prepMedCount,
     totalDoses: manualDoses + dischargeCount * 0.6 + prepMedCount * 1.5
       + (shiftCounts.早班 || 0) * 100 + (shiftCounts.晚班 || 0) * 300 + (shiftCounts.出院班 || 0) * 50,
-    totalItems: count * 13
+    totalItems: (manualDoses + dischargeCount * 0.6 + prepMedCount * 1.5
+      + (shiftCounts.早班 || 0) * 100 + (shiftCounts.晚班 || 0) * 300 + (shiftCounts.出院班 || 0) * 50) * 13
   };
 }
 
