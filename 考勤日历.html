@@ -3152,81 +3152,52 @@ function exportAllExcel() {
   const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
   const weekNames = ['日','一','二','三','四','五','六'];
 
-  const header = ['工号', '日期', '星期'];
-  for (const p of people) {
-    const id = getEmployeeId(p);
-    header.push(id ? `${p}(${id})` : p);
-  }
+  // 标题行
   const allRows = [
     [`全员考勤 - ${currentYear}年${currentMonth}月`],
-    [],
-    header
+    []
   ];
+
+  // 表头：人员 | 工号 | 日期列... | 汇总列...
+  const header = ['人员', '工号'];
   for (let d = 1; d <= daysInMonth; d++) {
-    const key = dateKey(currentYear, currentMonth, d);
     const dow = new Date(currentYear, currentMonth - 1, d).getDay();
-    const row = ['', `${currentMonth}/${d}`, `星期${weekNames[dow]}`];
-    for (const p of people) {
-      const data = loadData(p, ym());
-      const status = data[key] ? getDisplayLabel(data[key]) : '';
-      row.push(status);
+    header.push(`${currentMonth}/${d} 星期${weekNames[dow]}`);
+  }
+  header.push('休超时假(h)', '休假(天)', '超时(h)', '加班(天)',
+    '手工单(张)', '手工单(剂)', '发出院(个)', '挑药(剂)',
+    '班次(次)', '早班', '晚班', '出院班', '直落');
+  allRows.push(header);
+
+  // 每人一行
+  for (const p of people) {
+    const id = getEmployeeId(p);
+    const row = [p, id || ''];
+    const data = loadData(p, ym());
+    for (let d = 1; d <= daysInMonth; d++) {
+      const key = dateKey(currentYear, currentMonth, d);
+      row.push(data[key] ? getDisplayLabel(data[key]) : '');
     }
+    const s = calcSummary(p, ym());
+    row.push(s.presentH, s.leaveDays, s.overtimeH, s.overtimeDayDays,
+      s.manualSheets||0, s.manualDoses||0, s.dischargeCount||0, s.prepMedCount||0,
+      s.shiftCount||0, s.shiftCounts.早班||0, s.shiftCounts.晚班||0,
+      s.shiftCounts.出院班||0, s.shiftCounts.直落||0);
     allRows.push(row);
   }
-  // 汇总行
-  allRows.push([]);
-  const sumRowH = ['', '休超时假', 'h'];
-  const sumRowL = ['', '休假', '天'];
-  const sumRowO = ['', '超时', 'h'];
-  const sumRowOD = ['', '加班', '天'];
-  const sumRowM = ['', '手工单', '张'];
-  const sumRowMD = ['', '手工单', '剂'];
-  const sumRowDC = ['', '发出院', '个'];
-  const sumRowPM = ['', '挑药', '剂'];
-  const sumRowS = ['', '班次', '次'];
-  const sumRowSZ = ['', '  早班', '次'];
-  const sumRowSW = ['', '  晚班', '次'];
-  const sumRowSC = ['', '  出院班', '次'];
-  const sumRowSZL = ['', '  直落', '次'];
-  for (const p of people) {
-    const s = calcSummary(p, ym());
-    sumRowH.push(s.presentH);
-    sumRowL.push(s.leaveDays);
-    sumRowO.push(s.overtimeH);
-    sumRowOD.push(s.overtimeDayDays);
-    sumRowM.push(s.manualSheets||0);
-    sumRowMD.push(s.manualDoses||0);
-    sumRowDC.push(s.dischargeCount||0);
-    sumRowPM.push(s.prepMedCount||0);
-    sumRowS.push(s.shiftCount||0);
-    sumRowSZ.push(s.shiftCounts.早班||0);
-    sumRowSW.push(s.shiftCounts.晚班||0);
-    sumRowSC.push(s.shiftCounts.出院班||0);
-    sumRowSZL.push(s.shiftCounts.直落||0);
-  }
-  allRows.push(sumRowH);
-  allRows.push(sumRowL);
-  allRows.push(sumRowO);
-  allRows.push(sumRowOD);
-  allRows.push(sumRowM);
-  allRows.push(sumRowMD);
-  allRows.push(sumRowDC);
-  allRows.push(sumRowPM);
-  allRows.push(sumRowS);
-  allRows.push(sumRowSZ);
-  allRows.push(sumRowSW);
-  allRows.push(sumRowSC);
-  allRows.push(sumRowSZL);
+
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(allRows);
 
   // Column widths
-  const colWidths = [{wch: 6}, {wch: 10}, {wch: 10}];
-  for (const p of people) colWidths.push({wch: 10});
+  const colWidths = [{wch: 8}, {wch: 6}];
+  for (let d = 1; d <= daysInMonth; d++) colWidths.push({wch: 8});
+  for (let i = 0; i < 13; i++) colWidths.push({wch: 10});
   ws['!cols'] = colWidths;
 
   // Merge title row
-  ws['!merges'] = [{s: {r: 0, c: 0}, e: {r: 0, c: people.length + 3}}];
+  const totalCols = 2 + daysInMonth + 13;
+  ws['!merges'] = [{s: {r: 0, c: 0}, e: {r: 0, c: totalCols - 1}}];
 
   XLSX.utils.book_append_sheet(wb, ws, '全员考勤');
   XLSX.writeFile(wb, `考勤_全员_${currentYear}年${currentMonth}月.xlsx`);
