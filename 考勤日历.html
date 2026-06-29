@@ -2319,10 +2319,12 @@ function renderPersonTabs(people) {
     <span class="person-tab ${p===currentPerson?'active':''}"
           onclick="selectPerson('${p.replace(/'/g,"\\'")}')">
       ${displayName}
+      <span class="del" style="color:#888;" onclick="event.stopPropagation();showEditEmployeeId('${p.replace(/'/g,"\\'")}')" title="编辑工号">✏️</span>
       ${isPersonLocked(p) ? `<span class="del" style="color:#f59e0b;opacity:1;" onclick="event.stopPropagation();adminResetPersonLock('${p.replace(/'/g,"\\'")}')" title="已锁定，点击重置密码">🔒</span>` : ''}
       ${people.length > 1 ? `<span class="del" onclick="event.stopPropagation();removePerson('${p.replace(/'/g,"\\'")}')">×</span>` : ''}
     </span>
   `}).join('');
+}
 function selectPerson(name) {
   currentPerson = name;
   saveCurrentPerson(name);
@@ -2379,6 +2381,58 @@ function showAddPersonModal() {
 }
 function closeAddPersonModal() {
   document.getElementById('addPersonOverlay')?.remove();
+}
+// ── 管理员编辑已有人员的工号 ──
+function showEditEmployeeId(name) {
+  const currentId = getEmployeeId(name);
+  const overlay = document.createElement('div');
+  overlay.className = 'sheet-overlay';
+  overlay.id = 'editIdOverlay';
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeEditIdModal();
+  });
+  overlay.innerHTML = `
+    <div class="sheet"><div class="sheet-handle"></div>
+      <h3>编辑工号 - ${name}</h3>
+      <div style="margin:10px 0;">
+        <label style="font-size:13px;color:#888;">工号 (1-4位数字，留空则清除)</label>
+        <input id="editPersonId" value="${currentId}" placeholder="如 0001" maxlength="4" pattern="[0-9]*" inputmode="numeric"
+          style="width:100%;padding:12px;border:1px solid #d9d9d9;border-radius:10px;font-size:16px;box-sizing:border-box;margin-top:4px;">
+      </div>
+      <div class="sheet-btns">
+        <button class="btn-cancel" onclick="closeEditIdModal()">取消</button>
+        <button class="btn-confirm" onclick="confirmEditId('${name.replace(/'/g,\"\\'\")}')">确认</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  setTimeout(() => {
+    const inp = document.getElementById('editPersonId');
+    if (inp) { inp.focus(); inp.select(); }
+  }, 50);
+  document.getElementById('editPersonId').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') confirmEditId(name);
+    if (e.key === 'Escape') closeEditIdModal();
+  });
+  document.getElementById('editPersonId').addEventListener('input', (e) => {
+    e.target.value = e.target.value.replace(/[^0-9]/g, '').slice(0, 4);
+  });
+}
+function closeEditIdModal() {
+  document.getElementById('editIdOverlay')?.remove();
+}
+function confirmEditId(name) {
+  const id = document.getElementById('editPersonId').value.trim();
+  if (id && !/^\d{1,4}$/.test(id)) { showToast('工号只能为1-4位数字', true); return; }
+  if (id) {
+    const ids = loadEmployeeIds();
+    const existingName = Object.keys(ids).find(k => ids[k] === id && k !== name);
+    if (existingName) { showToast(`工号 ${id} 已被「${existingName}」使用`, true); return; }
+  }
+  closeEditIdModal();
+  setEmployeeId(name, id);
+  render();
+  showToast(id ? `✅ ${name} 工号已设为 ${id}` : `✅ 已清除 ${name} 的工号`);
 }
 function confirmAddPerson() {
   const name = document.getElementById('addPersonName').value.trim();
