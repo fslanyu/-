@@ -2323,6 +2323,7 @@ function renderPersonTabs(people) {
       ${people.length > 1 ? `<span class="del" onclick="event.stopPropagation();removePerson('${p.replace(/'/g,"\\'")}')">×</span>` : ''}
     </span>
   `}).join('');
+}
 function selectPerson(name) {
   currentPerson = name;
   saveCurrentPerson(name);
