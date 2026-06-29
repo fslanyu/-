@@ -833,9 +833,16 @@ function setEmployeeId(name, id) {
 function sortPeopleById(people) {
   const ids = loadEmployeeIds();
   return [...people].sort((a, b) => {
-    const idA = ids[a] || '99999';
-    const idB = ids[b] || '99999';
-    if (idA !== idB) return idA.localeCompare(idB);
+    const idA = ids[a] || null;
+    const idB = ids[b] || null;
+    // 无工号排最后
+    if (!idA && !idB) return a.localeCompare(b, 'zh');
+    if (!idA) return 1;
+    if (!idB) return -1;
+    // 数字比较（补零对齐）
+    const nA = parseInt(idA, 10);
+    const nB = parseInt(idB, 10);
+    if (nA !== nB) return nA - nB;
     return a.localeCompare(b, 'zh');
   });
 }
