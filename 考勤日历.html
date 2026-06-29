@@ -1887,12 +1887,12 @@ function confirmManualQty(key) {
 
 // ── 发出院数量输入（个数）──
 function showDischargePicker(key) {
-  showSingleQtyPicker(key, 'discharge', '发出院', '个');
+  showSingleQtyPicker(key, 'discharge', '发出院', '多少个');
 }
 
 // ── 挑药数量输入（剂数）──
 function showPrepMedPicker(key) {
-  showSingleQtyPicker(key, 'prep_med', '挑药', '剂');
+  showSingleQtyPicker(key, 'prep_med', '挑药', '多少剂');
 }
 
 // ── 通用单数量输入 ──
@@ -1907,7 +1907,7 @@ function showSingleQtyPicker(key, statusType, title, unit) {
     <div class="sheet"><div class="sheet-handle"></div>
       <h3>${title} - 输入数量</h3>
       <div style="display:flex;gap:10px;align-items:center;margin:10px 0;">
-        <span style="font-size:14px;color:#555;white-space:nowrap;">${unit}数：</span>
+        <span style="font-size:14px;color:#555;white-space:nowrap;">${unit}：</span>
         <input id="${statusType}QtyInput" type="number" min="0" max="999" value="1" placeholder="${unit}"
           style="flex:1;padding:12px;border:1px solid #d9d9d9;border-radius:10px;font-size:18px;text-align:center;box-sizing:border-box;">
       </div>
