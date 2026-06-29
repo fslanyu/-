@@ -263,6 +263,8 @@ body {
 .team-chip.overtime_day { background: #fff0e0; color: var(--deep-orange); }
 .team-chip.manual { background: #e0f2f1; color: #00695c; }
 .team-chip.shift { background: #fce4ec; color: #c2185b; }
+.team-chip.discharge { background: #e3f2fd; color: #1565c0; }
+.team-chip.prep_med { background: #fff3e0; color: #e65100; }
 
 /* Single view status colors */
 .s-present .status-badge { background: #e6f7e6; color: var(--success); }
@@ -285,6 +287,12 @@ body {
 
 .s-shift .status-badge { background: #fce4ec; color: #c2185b; }
 .s-shift { background: #fffafa; }
+
+.s-discharge .status-badge { background: #e3f2fd; color: #1565c0; }
+.s-discharge { background: #f8fbff; }
+
+.s-prep_med .status-badge { background: #fff3e0; color: #e65100; }
+.s-prep_med { background: #fffdf8; }
 
 /* ── Note Panel ── */
 .note-panel {
@@ -396,6 +404,10 @@ body {
 .sheet .picker-btn.overtime_day:active { background: #fff0e0; }
 .sheet .picker-btn.manual { border-color: #00695c; color: #00695c; }
 .sheet .picker-btn.manual:active { background: #e0f2f1; }
+.sheet .picker-btn.discharge { border-color: #1565c0; color: #1565c0; }
+.sheet .picker-btn.discharge:active { background: #e3f2fd; }
+.sheet .picker-btn.prep_med { border-color: #e65100; color: #e65100; }
+.sheet .picker-btn.prep_med:active { background: #fff3e0; }
 .sheet .picker-btn.shift { border-color: #c2185b; color: #c2185b; }
 .sheet .picker-btn.shift:active { background: #fce4ec; }
 .sheet .picker-cancel {
@@ -767,8 +779,10 @@ const STATUS = {
   overtime_day: { label: '加班', cls: 's-overtime_day' },
   manual:  { label: '手工单', cls: 's-manual' },
   shift:   { label: '班次', cls: 's-shift' },
+  discharge: { label: '发出院', cls: 's-discharge' },
+  prep_med:  { label: '挑药', cls: 's-prep_med' },
 };
-const STATUS_ORDER = ['present','absent','late','leave','trip','overtime','overtime_day','manual','shift'];
+const STATUS_ORDER = ['present','absent','late','leave','trip','overtime','overtime_day','manual','shift','discharge','prep_med'];
 
 // 时长选项
 const PRESENT_HOURS = ['半天', '全天', '0.5', '1', '1.5', '2', '2.5', '3', '3.5', '4', '4.5', '5', '5.5', '6', '6.5', '7'];
@@ -784,6 +798,7 @@ const STORAGE_PWD = 'attendance_admin_pwd';
 const STORAGE_PERSON_PIN = 'attendance_person_pin_'; // + name
 const STORAGE_PERSON_UNLOCKED = 'attendance_person_unlocked_'; // + name — 持久化解锁状态
 const STORAGE_ADMIN_USERS = 'attendance_admin_users';
+const STORAGE_EMPLOYEE_IDS = 'attendance_employee_ids';
 const DEFAULT_ADMIN_USERS = ['琨', '景斌'];
 const DEFAULT_PASSWORD='fszyy8306';
 
@@ -794,6 +809,35 @@ function loadAdminUsers() {
 }
 function saveAdminUsers(users) {
   localStorage.setItem(STORAGE_ADMIN_USERS, JSON.stringify(users));
+}
+
+// ── 工号管理 ──
+function loadEmployeeIds() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_EMPLOYEE_IDS) || '{}'); }
+  catch { return {}; }
+}
+function saveEmployeeIds(ids) {
+  localStorage.setItem(STORAGE_EMPLOYEE_IDS, JSON.stringify(ids));
+}
+function getEmployeeId(name) {
+  const ids = loadEmployeeIds();
+  return ids[name] || '';
+}
+function setEmployeeId(name, id) {
+  const ids = loadEmployeeIds();
+  if (id) ids[name] = id;
+  else delete ids[name];
+  saveEmployeeIds(ids);
+}
+// 按工号排序人员列表（工号小的在前，无工号的排最后按姓名排）
+function sortPeopleById(people) {
+  const ids = loadEmployeeIds();
+  return [...people].sort((a, b) => {
+    const idA = ids[a] || '99999';
+    const idB = ids[b] || '99999';
+    if (idA !== idB) return idA.localeCompare(idB);
+    return a.localeCompare(b, 'zh');
+  });
 }
 
 // ── 年休假额度管理 ──
@@ -953,6 +997,12 @@ function getDisplayLabel(raw) {
       const doses = subtype || '0';
       if (doses === '0' && subtype === null) return '手工单 ' + sheets + '张';
       return '手工单 ' + sheets + '张' + doses + '剂';
+    }
+    if (status === 'discharge') {
+      return '发出院 ' + (hours || '0') + '个';
+    }
+    if (status === 'prep_med') {
+      return '挑药 ' + (hours || '0') + '剂';
     }
     if (status === 'shift') {
       return '班次 ' + (hours || '');
@@ -1453,7 +1503,7 @@ function showDayDetail(key, day, raw, note) {
   let itemsHtml = '';
   for (const s of statuses) {
     const lbl = getDisplayLabel(formatStatus(s.status, s.hours, s.subtype));
-    const icons = {present:'🏖',absent:'❌',late:'⏰',leave:'🌴',trip:'🚗',overtime:'⏱',overtime_day:'💼',manual:'📄',shift:'🔄'};
+    const icons = {present:'🏖',absent:'❌',late:'⏰',leave:'🌴',trip:'🚗',overtime:'⏱',overtime_day:'💼',manual:'📄',shift:'🔄',discharge:'🏥',prep_med:'💊'};
     itemsHtml += `<div style="font-size:18px;padding:8px 12px;background:#f8f9fa;border-radius:8px;margin:4px 0;display:flex;align-items:center;gap:8px;">
       <span style="font-size:22px;">${icons[s.status]||'📌'}</span>
       <span style="font-weight:600;">${lbl}</span>
@@ -1628,6 +1678,16 @@ function pickStatus(key, status) {
   if (status === 'manual') {
     // 手工单：弹出双输入（张数+剂数）
     showManualQuantityPicker(key);
+    return;
+  }
+  if (status === 'discharge') {
+    // 发出院：弹出单个输入（个数）
+    showDischargePicker(key);
+    return;
+  }
+  if (status === 'prep_med') {
+    // 挑药：弹出单个输入（剂数）
+    showPrepMedPicker(key);
     return;
   }
   if (status === 'shift') {
@@ -1822,6 +1882,75 @@ function confirmManualQty(key) {
   saveData(currentPerson, ym(), data);
   render();
   const label = doses > 0 ? `手工单 ${sheets}张${doses}剂` : `手工单 ${sheets}张`;
+  showToast(`✅ 已登记：${label}`);
+}
+
+// ── 发出院数量输入（个数）──
+function showDischargePicker(key) {
+  showSingleQtyPicker(key, 'discharge', '发出院', '个');
+}
+
+// ── 挑药数量输入（剂数）──
+function showPrepMedPicker(key) {
+  showSingleQtyPicker(key, 'prep_med', '挑药', '剂');
+}
+
+// ── 通用单数量输入 ──
+function showSingleQtyPicker(key, statusType, title, unit) {
+  const overlay = document.createElement('div');
+  overlay.className = 'sheet-overlay';
+  overlay.id = statusType + 'QtyOverlay';
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeSingleQtyPicker(statusType);
+  });
+  overlay.innerHTML = `
+    <div class="sheet"><div class="sheet-handle"></div>
+      <h3>${title} - 输入数量</h3>
+      <div style="display:flex;gap:10px;align-items:center;margin:10px 0;">
+        <span style="font-size:14px;color:#555;white-space:nowrap;">${unit}数：</span>
+        <input id="${statusType}QtyInput" type="number" min="0" max="999" value="1" placeholder="${unit}"
+          style="flex:1;padding:12px;border:1px solid #d9d9d9;border-radius:10px;font-size:18px;text-align:center;box-sizing:border-box;">
+      </div>
+      <div class="sheet-btns" style="margin-top:12px;">
+        <button class="btn-cancel" onclick="closeSingleQtyPicker('${statusType}')">取消</button>
+        <button class="btn-confirm" onclick="confirmSingleQty('${key}','${statusType}')">确认</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  setTimeout(() => {
+    const inp = document.getElementById(statusType + 'QtyInput');
+    if (inp) { inp.focus(); inp.select(); }
+  }, 50);
+  document.getElementById(statusType + 'QtyInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') confirmSingleQty(key, statusType);
+    if (e.key === 'Escape') closeSingleQtyPicker(statusType);
+  });
+}
+function closeSingleQtyPicker(statusType) {
+  document.getElementById(statusType + 'QtyOverlay')?.remove();
+}
+function confirmSingleQty(key, statusType) {
+  const input = document.getElementById(statusType + 'QtyInput');
+  const qty = parseInt(input.value, 10);
+  closeSingleQtyPicker(statusType);
+  if (isNaN(qty) || qty < 0) { showToast('请输入有效数量', true); return; }
+  if (qty === 0) { showToast('数量不能为0', true); return; }
+  const data = loadData(currentPerson, ym());
+  const raw = data[key] || null;
+  const result = appendStatus(raw, statusType, String(qty), null);
+  if (result === null) {
+    showToast('⚠️ 该日期已有缺勤/加班/全天补休/年休假全天，不能再叠加其他状态', true);
+    return;
+  }
+  if (result === '__ADMIN_PROTECTED__') {
+    showToast('🔒 此日期含管理员填报数据，无法覆盖或删除', true);
+    return;
+  }
+  data[key] = result;
+  saveData(currentPerson, ym(), data);
+  render();
+  const label = STATUS[statusType].label + ' ' + qty + (statusType === 'discharge' ? '个' : '剂');
   showToast(`✅ 已登记：${label}`);
 }
 
@@ -2033,6 +2162,8 @@ function render() {
       <div class="legend-item"><div class="legend-dot" style="background:#fff0e0;border:2px solid #c2410c;"></div>加班</div>
       <div class="legend-item"><div class="legend-dot" style="background:#e0f2f1;border:2px solid #00695c;"></div>手工单</div>
       <div class="legend-item"><div class="legend-dot" style="background:#fce4ec;border:2px solid #c2185b;"></div>班次</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#e3f2fd;border:2px solid #1565c0;"></div>发出院</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#fff3e0;border:2px solid #e65100;"></div>挑药</div>
     </div>
 
     <div class="stats" id="stats"></div>
@@ -2181,16 +2312,17 @@ function onViewChange(name) {
 function renderPersonTabs(people) {
   const container = document.getElementById('personTabs');
   if (!container) return;
-  container.innerHTML = people.map(p => `
+  container.innerHTML = people.map(p => {
+    const id = getEmployeeId(p);
+    const displayName = id ? `${p}(${id})` : p;
+    return `
     <span class="person-tab ${p===currentPerson?'active':''}"
           onclick="selectPerson('${p.replace(/'/g,"\\'")}')">
-      ${p}
+      ${displayName}
       ${isPersonLocked(p) ? `<span class="del" style="color:#f59e0b;opacity:1;" onclick="event.stopPropagation();adminResetPersonLock('${p.replace(/'/g,"\\'")}')" title="已锁定，点击重置密码">🔒</span>` : ''}
       ${people.length > 1 ? `<span class="del" onclick="event.stopPropagation();removePerson('${p.replace(/'/g,"\\'")}')">×</span>` : ''}
     </span>
-  `).join('');
-}
-
+  `}).join('');
 function selectPerson(name) {
   currentPerson = name;
   saveCurrentPerson(name);
@@ -2202,16 +2334,71 @@ function selectPerson(name) {
 
 function addPerson() {
   if (!isAdmin) return;
-  showModal('添加人员', '输入姓名...', (name) => {
-    if (!name.trim()) return;
-    const people = loadPeople();
-    if (people.includes(name.trim())) { showToast('该人员已存在', true); return; }
-    people.push(name.trim());
-    savePeople(people);
-    currentPerson = name.trim();
-    saveCurrentPerson(currentPerson);
-    render();
+  showAddPersonModal();
+}
+
+function showAddPersonModal() {
+  const overlay = document.createElement('div');
+  overlay.className = 'sheet-overlay';
+  overlay.id = 'addPersonOverlay';
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeAddPersonModal();
   });
+  overlay.innerHTML = `
+    <div class="sheet"><div class="sheet-handle"></div>
+      <h3>添加人员</h3>
+      <div style="margin-bottom:8px;">
+        <label style="font-size:13px;color:#888;">姓名</label>
+        <input id="addPersonName" placeholder="输入姓名" autofocus
+          style="width:100%;padding:12px;border:1px solid #d9d9d9;border-radius:10px;font-size:16px;box-sizing:border-box;margin-top:4px;">
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="font-size:13px;color:#888;">工号 <span style="color:#aaa;">(4位数字，选填)</span></label>
+        <input id="addPersonId" placeholder="如 0001" maxlength="4" pattern="[0-9]*" inputmode="numeric"
+          style="width:100%;padding:12px;border:1px solid #d9d9d9;border-radius:10px;font-size:16px;box-sizing:border-box;margin-top:4px;">
+      </div>
+      <div class="sheet-btns">
+        <button class="btn-cancel" onclick="closeAddPersonModal()">取消</button>
+        <button class="btn-confirm" onclick="confirmAddPerson()">确认</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  setTimeout(() => document.getElementById('addPersonName').focus(), 50);
+  document.getElementById('addPersonName').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') confirmAddPerson();
+    if (e.key === 'Escape') closeAddPersonModal();
+  });
+  document.getElementById('addPersonId').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') confirmAddPerson();
+    if (e.key === 'Escape') closeAddPersonModal();
+  });
+  document.getElementById('addPersonId').addEventListener('input', (e) => {
+    e.target.value = e.target.value.replace(/[^0-9]/g, '').slice(0, 4);
+  });
+}
+function closeAddPersonModal() {
+  document.getElementById('addPersonOverlay')?.remove();
+}
+function confirmAddPerson() {
+  const name = document.getElementById('addPersonName').value.trim();
+  const id = document.getElementById('addPersonId').value.trim();
+  if (!name) { showToast('请输入姓名', true); return; }
+  const people = loadPeople();
+  if (people.includes(name)) { showToast('该人员已存在', true); return; }
+  if (id && !/^\d{1,4}$/.test(id)) { showToast('工号只能为1-4位数字', true); return; }
+  if (id) {
+    const ids = loadEmployeeIds();
+    const existingName = Object.keys(ids).find(k => ids[k] === id && k !== name);
+    if (existingName) { showToast(`工号 ${id} 已被「${existingName}」使用`, true); return; }
+  }
+  closeAddPersonModal();
+  people.push(name);
+  savePeople(people);
+  if (id) setEmployeeId(name, id);
+  currentPerson = name;
+  saveCurrentPerson(currentPerson);
+  render();
 }
 
 function removePerson(name) {
@@ -2220,6 +2407,7 @@ function removePerson(name) {
   if (!confirm(`确认删除「${name}」及其所有考勤数据？`)) return;
   const people = loadPeople().filter(p => p !== name);
   savePeople(people);
+  setEmployeeId(name, ''); // 清除工号
   const keys = Object.keys(localStorage).filter(k => k.startsWith(`att_${name}_`) || k.startsWith(`att_note_${name}_`));
   keys.forEach(k => localStorage.removeItem(k));
   if (currentPerson === name) {
@@ -2441,6 +2629,11 @@ function cycleStatus(key) {
   const data = loadData(currentPerson, ym());
   const raw = data[key] || null;
   const { status: cur, hours, subtype } = parseStatus(raw);
+  // 如果当前是手动输入类型，弹出数量选择器
+  if (cur === 'manual') { showManualQuantityPicker(key); return; }
+  if (cur === 'discharge') { showDischargePicker(key); return; }
+  if (cur === 'prep_med') { showPrepMedPicker(key); return; }
+  if (cur === 'shift') { showShiftPicker(key); return; }
   // 如果当前是休超时假/公差/休假/超时/加班，弹出时长修改器
   if (cur === 'present' || cur === 'trip' || cur === 'leave' || cur === 'overtime' || cur === 'overtime_day') {
     const defH = cur === 'overtime' ? '2' : (cur === 'trip' ? '1' : '全天');
@@ -2454,6 +2647,10 @@ function cycleStatus(key) {
     next = idx===STATUS_ORDER.length-1 ? null : STATUS_ORDER[idx+1];
   }
   if (next) {
+    if (next === 'manual') { showManualQuantityPicker(key); return; }
+    if (next === 'discharge') { showDischargePicker(key); return; }
+    if (next === 'prep_med') { showPrepMedPicker(key); return; }
+    if (next === 'shift') { showShiftPicker(key); return; }
     const defHours = next === 'overtime' ? '2' : (next === 'trip' ? '1' : '全天');
     data[key] = (next === 'present' || next === 'trip' || next === 'leave' || next === 'overtime' || next === 'overtime_day') ? formatStatus(next, defHours, null, true) : (next + '|admin');
   }
@@ -2547,10 +2744,11 @@ function renderStats() {
   const statsDiv = document.getElementById('stats');
   if (viewMode === 'single') {
     const data = loadData(displayPerson, ym());
-    let c = {present:0,absent:0,late:0,leave:0,trip:0,overtime:0,overtime_day:0,manual:0,shift:0};
+    let c = {present:0,absent:0,late:0,leave:0,trip:0,overtime:0,overtime_day:0,manual:0,shift:0,discharge:0,prep_med:0};
     let presentTotalH = 0, tripHours = 0, leaveHalf = 0, overtimeHours = 0;
     let overtimeDayHalf = 0;
     let manualSheets = 0, manualDoses = 0;
+    let dischargeCount = 0, prepMedCount = 0;
     let shiftCounts = {早班:0, 晚班:0, 出院班:0, 直落:0};
     let marked = 0;
     for (const [_,v] of Object.entries(data)) {
@@ -2582,6 +2780,12 @@ function renderStats() {
             manualSheets += parseInt(hours) || 0;
             manualDoses += parseInt(s.subtype) || 0;
           }
+          if (status === 'discharge') {
+            dischargeCount += parseInt(hours) || 0;
+          }
+          if (status === 'prep_med') {
+            prepMedCount += parseInt(hours) || 0;
+          }
           if (status === 'shift' && hours) {
             shiftCounts[hours] = (shiftCounts[hours] || 0) + 1;
           }
@@ -2605,6 +2809,8 @@ function renderStats() {
       <div class="stat-item">超时 <b>${overtimeHours}</b>h</div>
       <div class="stat-item">加班 <b>${c.overtime_day}</b>天${overtimeDayHalf > 0 ? ` (含${overtimeDayHalf}个半天)` : ''}</div>
       ${manualSheets > 0 || manualDoses > 0 ? `<div class="stat-item">手工单 <b>${manualSheets}</b>张${manualDoses > 0 ? ` <b>${manualDoses}</b>剂` : ''}</div>` : `<div class="stat-item">手工单 <b>0</b>张</div>`}
+      ${dischargeCount > 0 ? `<div class="stat-item">发出院 <b>${dischargeCount}</b>个</div>` : `<div class="stat-item">发出院 <b>0</b>个</div>`}
+      ${prepMedCount > 0 ? `<div class="stat-item">挑药 <b>${prepMedCount}</b>剂</div>` : `<div class="stat-item">挑药 <b>0</b>剂</div>`}
       ${c.shift > 0 ? `<div class="stat-item">班次 早班<b>${shiftCounts.早班||0}</b> 晚班<b>${shiftCounts.晚班||0}</b> 出院班<b>${shiftCounts.出院班||0}</b> 直落<b>${shiftCounts.直落||0}</b></div>` : `<div class="stat-item">班次 <b>0</b></div>`}
     `;
     statsDiv.innerHTML = statsHtml;
@@ -2613,14 +2819,16 @@ function renderStats() {
     let html = `<div class="stat-item">本月共 <b>${daysInMonth}</b> 天</div>`;
     for (const p of people) {
       const data = loadData(p, ym());
-      let c = {present:0,absent:0,late:0,leave:0,trip:0,overtime:0,overtime_day:0,manual:0,shift:0};
+      let c = {present:0,absent:0,late:0,leave:0,trip:0,overtime:0,overtime_day:0,manual:0,shift:0,discharge:0,prep_med:0};
       for (const [_,v] of Object.entries(data)) {
         const statuses = parseStatuses(v);
         for (const s of statuses) {
           if (s.status && c.hasOwnProperty(s.status)) c[s.status]++;
         }
       }
-      html += `<div class="stat-item">${p}: 休超时假<b>${c.present}</b> 缺勤<b>${c.absent}</b> 迟到<b>${c.late}</b> 休假<b>${c.leave}</b> 公差<b>${c.trip}</b> 加班<b>${c.overtime_day}</b> 手工单<b>${c.manual}</b> 班次<b>${c.shift}</b>${(() => { const q = getPersonLeaveQuota(p); return q.hasQuota ? ` 🏖<b>${q.used}/${q.total}</b>` : ''; })()}</div>`;
+      const eid = getEmployeeId(p);
+      const pDisplay = eid ? `${p}(${eid})` : p;
+      html += `<div class="stat-item">${pDisplay}: 休超时假<b>${c.present}</b> 缺勤<b>${c.absent}</b> 迟到<b>${c.late}</b> 休假<b>${c.leave}</b> 公差<b>${c.trip}</b> 加班<b>${c.overtime_day}</b> 手工单<b>${c.manual}</b> 班次<b>${c.shift}</b>${(() => { const q = getPersonLeaveQuota(p); return q.hasQuota ? ` 🏖<b>${q.used}/${q.total}</b>` : ''; })()}</div>`;
     }
     statsDiv.innerHTML = html;
   }
@@ -2679,6 +2887,7 @@ function calcSummary(person, ym) {
   let count = 0, presentH = 0, leaveDays = 0, leaveHalf = 0, overtimeH = 0;
   let overtimeDayDays = 0, overtimeDayHalf = 0;
   let manualSheets = 0, manualDoses = 0, shiftCount = 0;
+  let dischargeCount = 0, prepMedCount = 0;
   let shiftCounts = {早班:0, 晚班:0, 出院班:0, 直落:0};
   for (const [_, v] of Object.entries(data)) {
     const statuses = parseStatuses(v);
@@ -2704,6 +2913,12 @@ function calcSummary(person, ym) {
         manualSheets += parseInt(hours) || 0;
         manualDoses += parseInt(subtype) || 0;
       }
+      if (status === 'discharge') {
+        dischargeCount += parseInt(hours) || 0;
+      }
+      if (status === 'prep_med') {
+        prepMedCount += parseInt(hours) || 0;
+      }
       if (status === 'shift') {
         shiftCount++;
         if (hours) shiftCounts[hours] = (shiftCounts[hours] || 0) + 1;
@@ -2715,7 +2930,8 @@ function calcSummary(person, ym) {
     leaveDays: leaveDays - leaveHalf * 0.5,
     overtimeH,
     overtimeDayDays: overtimeDayDays - overtimeDayHalf * 0.5,
-    manualSheets, manualDoses, shiftCount, shiftCounts
+    manualSheets, manualDoses, shiftCount, shiftCounts,
+    dischargeCount, prepMedCount
   };
 }
 
@@ -2742,6 +2958,8 @@ function exportCSV() {
   csv += `加班总天数,,${s.overtimeDayDays}天,\n`;
   csv += `手工单总张数,,${s.manualSheets||0}张,\n`;
   csv += `手工单总剂数,,${s.manualDoses||0}剂,\n`;
+  csv += `发出院总数,,${s.dischargeCount||0}个,\n`;
+  csv += `挑药总数,,${s.prepMedCount||0}剂,\n`;
   csv += `班次总次数,,${s.shiftCount||0}次,\n`;
   csv += `  早班,,${s.shiftCounts.早班||0}次,\n`;
   csv += `  晚班,,${s.shiftCounts.晚班||0}次,\n`;
@@ -2752,14 +2970,17 @@ function exportCSV() {
 
 function exportAllCSV() {
   if (!isAdmin) return;
-  const people = loadPeople();
+  const people = sortPeopleById(loadPeople());
   const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
   const weekNames = ['日','一','二','三','四','五','六'];
-  let csv = '日期,星期,' + people.join(',') + '\n';
+  let csv = '工号,日期,星期,' + people.map(p => {
+    const id = getEmployeeId(p);
+    return id ? `${p}(${id})` : p;
+  }).join(',') + '\n';
   for (let d=1; d<=daysInMonth; d++) {
     const key = dateKey(currentYear, currentMonth, d);
     const dow = new Date(currentYear, currentMonth-1, d).getDay();
-    let row = `${currentMonth}/${d},星期${weekNames[dow]}`;
+    let row = `,${currentMonth}/${d},星期${weekNames[dow]}`;
     for (const p of people) {
       const data = loadData(p, ym());
       const status = data[key] ? getDisplayLabel(data[key]) : '';
@@ -2785,6 +3006,12 @@ function exportAllCSV() {
   csv += '\n';
   csv += `手工单(剂),,`;
   for (const p of people) { const s = calcSummary(p, ym()); csv += `,${s.manualDoses||0}`; }
+  csv += '\n';
+  csv += `发出院(个),,`;
+  for (const p of people) { const s = calcSummary(p, ym()); csv += `,${s.dischargeCount||0}`; }
+  csv += '\n';
+  csv += `挑药(剂),,`;
+  for (const p of people) { const s = calcSummary(p, ym()); csv += `,${s.prepMedCount||0}`; }
   csv += '\n';
   csv += `班次(次),,`;
   for (const p of people) { const s = calcSummary(p, ym()); csv += `,${s.shiftCount||0}`; }
@@ -2849,6 +3076,8 @@ function exportExcel() {
   allRows.push(['加班总天数', '', `${s.overtimeDayDays}天`, '']);
   allRows.push(['手工单总张数', '', `${s.manualSheets||0}张`, '']);
   allRows.push(['手工单总剂数', '', `${s.manualDoses||0}剂`, '']);
+  allRows.push(['发出院总数', '', `${s.dischargeCount||0}个`, '']);
+  allRows.push(['挑药总数', '', `${s.prepMedCount||0}剂`, '']);
   allRows.push(['班次总次数', '', `${s.shiftCount||0}次`, '']);
   allRows.push(['  早班', '', `${s.shiftCounts.早班||0}次`, '']);
   allRows.push(['  晚班', '', `${s.shiftCounts.晚班||0}次`, '']);
@@ -2867,11 +3096,15 @@ function exportExcel() {
 
 function exportAllExcel() {
   if (!isAdmin) return;
-  const people = loadPeople();
+  const people = sortPeopleById(loadPeople());
   const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
   const weekNames = ['日','一','二','三','四','五','六'];
 
-  const header = ['日期', '星期', ...people];
+  const header = ['工号', '日期', '星期'];
+  for (const p of people) {
+    const id = getEmployeeId(p);
+    header.push(id ? `${p}(${id})` : p);
+  }
   const allRows = [
     [`全员考勤 - ${currentYear}年${currentMonth}月`],
     [],
@@ -2880,7 +3113,7 @@ function exportAllExcel() {
   for (let d = 1; d <= daysInMonth; d++) {
     const key = dateKey(currentYear, currentMonth, d);
     const dow = new Date(currentYear, currentMonth - 1, d).getDay();
-    const row = [`${currentMonth}/${d}`, `星期${weekNames[dow]}`];
+    const row = ['', `${currentMonth}/${d}`, `星期${weekNames[dow]}`];
     for (const p of people) {
       const data = loadData(p, ym());
       const status = data[key] ? getDisplayLabel(data[key]) : '';
@@ -2890,17 +3123,19 @@ function exportAllExcel() {
   }
   // 汇总行
   allRows.push([]);
-  const sumRowH = ['休超时假(h)', ''];
-  const sumRowL = ['休假(天)', ''];
-  const sumRowO = ['超时(h)', ''];
-  const sumRowOD = ['加班(天)', ''];
-  const sumRowM = ['手工单(张)', ''];
-  const sumRowMD = ['手工单(剂)', ''];
-  const sumRowS = ['班次(次)', ''];
-  const sumRowSZ = ['  早班', ''];
-  const sumRowSW = ['  晚班', ''];
-  const sumRowSC = ['  出院班', ''];
-  const sumRowSZL = ['  直落', ''];
+  const sumRowH = ['', '休超时假(h)', ''];
+  const sumRowL = ['', '休假(天)', ''];
+  const sumRowO = ['', '超时(h)', ''];
+  const sumRowOD = ['', '加班(天)', ''];
+  const sumRowM = ['', '手工单(张)', ''];
+  const sumRowMD = ['', '手工单(剂)', ''];
+  const sumRowDC = ['', '发出院(个)', ''];
+  const sumRowPM = ['', '挑药(剂)', ''];
+  const sumRowS = ['', '班次(次)', ''];
+  const sumRowSZ = ['', '  早班', ''];
+  const sumRowSW = ['', '  晚班', ''];
+  const sumRowSC = ['', '  出院班', ''];
+  const sumRowSZL = ['', '  直落', ''];
   for (const p of people) {
     const s = calcSummary(p, ym());
     sumRowH.push(s.presentH);
@@ -2909,6 +3144,8 @@ function exportAllExcel() {
     sumRowOD.push(s.overtimeDayDays);
     sumRowM.push(s.manualSheets||0);
     sumRowMD.push(s.manualDoses||0);
+    sumRowDC.push(s.dischargeCount||0);
+    sumRowPM.push(s.prepMedCount||0);
     sumRowS.push(s.shiftCount||0);
     sumRowSZ.push(s.shiftCounts.早班||0);
     sumRowSW.push(s.shiftCounts.晚班||0);
@@ -2921,6 +3158,8 @@ function exportAllExcel() {
   allRows.push(sumRowOD);
   allRows.push(sumRowM);
   allRows.push(sumRowMD);
+  allRows.push(sumRowDC);
+  allRows.push(sumRowPM);
   allRows.push(sumRowS);
   allRows.push(sumRowSZ);
   allRows.push(sumRowSW);
@@ -2930,12 +3169,12 @@ function exportAllExcel() {
   const ws = XLSX.utils.aoa_to_sheet(allRows);
 
   // Column widths
-  const colWidths = [{wch: 10}, {wch: 10}];
+  const colWidths = [{wch: 6}, {wch: 10}, {wch: 10}];
   for (const p of people) colWidths.push({wch: 10});
   ws['!cols'] = colWidths;
 
   // Merge title row
-  ws['!merges'] = [{s: {r: 0, c: 0}, e: {r: 0, c: people.length + 1}}];
+  ws['!merges'] = [{s: {r: 0, c: 0}, e: {r: 0, c: people.length + 2}}];
 
   XLSX.utils.book_append_sheet(wb, ws, '全员考勤');
   XLSX.writeFile(wb, `考勤_全员_${currentYear}年${currentMonth}月.xlsx`);
