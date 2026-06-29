@@ -691,6 +691,37 @@ if (_SB) {
       })().catch(e => console.error(e));
     };
 
+    // ── 工号同步 ──
+    const orig_loadEmployeeIds = loadEmployeeIds;
+    loadEmployeeIds = function() {
+      try {
+        const cloud = JSON.parse(_C.configMap['employee_ids'] || '{}');
+        // 合并 localStorage 中可能的新数据（离线时设的工号）
+        const local = orig_loadEmployeeIds();
+        const merged = {...cloud, ...local};
+        if (JSON.stringify(merged) !== JSON.stringify(cloud)) {
+          // localStorage 有更新，回写到云端
+          _C.configMap['employee_ids'] = JSON.stringify(merged);
+          saveEmployeeIds(merged);
+        }
+        return merged;
+      } catch { return orig_loadEmployeeIds(); }
+    };
+    const orig_saveEmployeeIds = saveEmployeeIds;
+    saveEmployeeIds = function(ids) {
+      _C.configMap['employee_ids'] = JSON.stringify(ids);
+      orig_saveEmployeeIds(ids); // localStorage 兜底
+      (async () => {
+        const v = JSON.stringify(ids);
+        const m = 'key=eq.employee_ids';
+        try {
+          const ex = await _sGET(`config?select=id&${m}`);
+          ex.length ? await _sPATCH('config', `id=eq.${ex[0].id}`, {value: v})
+                    : await _sPOST('config', {key: 'employee_ids', value: v});
+        } catch(e) { console.error('工号同步失败', e); }
+      })().catch(e => console.error(e));
+    };
+
     console.log('✅ Supabase 云模式已启用');
   }
 
