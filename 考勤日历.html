@@ -833,13 +833,15 @@ function setEmployeeId(name, id) {
 function sortPeopleById(people) {
   const ids = loadEmployeeIds();
   return [...people].sort((a, b) => {
-    const idA = ids[a] || null;
-    const idB = ids[b] || null;
+    const idA = ids[a] || '';
+    const idB = ids[b] || '';
+    const hasA = idA !== '';
+    const hasB = idB !== '';
     // 无工号排最后
-    if (!idA && !idB) return a.localeCompare(b, 'zh');
-    if (!idA) return 1;
-    if (!idB) return -1;
-    // 数字比较（补零对齐）
+    if (!hasA && !hasB) return a.localeCompare(b, 'zh');
+    if (!hasA) return 1;
+    if (!hasB) return -1;
+    // 数字比较
     const nA = parseInt(idA, 10);
     const nB = parseInt(idB, 10);
     if (nA !== nB) return nA - nB;
