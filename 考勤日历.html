@@ -2904,6 +2904,7 @@ function renderStats() {
       ${dischargeCount > 0 ? `<div class="stat-item">发出院 <b>${dischargeCount}</b>个</div>` : `<div class="stat-item">发出院 <b>0</b>个</div>`}
       ${prepMedCount > 0 ? `<div class="stat-item">挑药 <b>${prepMedCount}</b>剂</div>` : `<div class="stat-item">挑药 <b>0</b>剂</div>`}
       ${c.shift > 0 ? `<div class="stat-item">班次 早班<b>${shiftCounts.早班||0}</b> 晚班<b>${shiftCounts.晚班||0}</b> 出院班<b>${shiftCounts.出院班||0}</b> 直落<b>${shiftCounts.直落||0}</b></div>` : `<div class="stat-item">班次 <b>0</b></div>`}
+      <div class="stat-item">总剂数 <b>${(manualDoses + dischargeCount*0.6 + prepMedCount*1.5 + (shiftCounts.早班||0)*100 + (shiftCounts.晚班||0)*300 + (shiftCounts.出院班||0)*50).toFixed(1)}</b>剂</div>
     `;
     statsDiv.innerHTML = statsHtml;
   } else {
@@ -3023,7 +3024,9 @@ function calcSummary(person, ym) {
     overtimeH,
     overtimeDayDays: overtimeDayDays - overtimeDayHalf * 0.5,
     manualSheets, manualDoses, shiftCount, shiftCounts,
-    dischargeCount, prepMedCount
+    dischargeCount, prepMedCount,
+    totalDoses: manualDoses + dischargeCount * 0.6 + prepMedCount * 1.5
+      + (shiftCounts.早班 || 0) * 100 + (shiftCounts.晚班 || 0) * 300 + (shiftCounts.出院班 || 0) * 50
   };
 }
 
@@ -3120,6 +3123,9 @@ function exportAllCSV() {
   csv += `  直落,,`;
   for (const p of people) { const s = calcSummary(p, ym()); csv += `,${s.shiftCounts.直落||0}`; }
   csv += '\n';
+  csv += `总剂数,,`;
+  for (const p of people) { const s = calcSummary(p, ym()); csv += `,${s.totalDoses||0}`; }
+  csv += '\n';
   downloadCSV(csv, `考勤_全员_${currentYear}年${currentMonth}月.csv`);
 }
 
@@ -3175,6 +3181,7 @@ function exportExcel() {
   allRows.push(['  晚班', '次', s.shiftCounts.晚班||0, '']);
   allRows.push(['  出院班', '次', s.shiftCounts.出院班||0, '']);
   allRows.push(['  直落', '次', s.shiftCounts.直落||0, '']);
+  allRows.push(['总剂数', '剂', s.totalDoses||0, '']);
 
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(allRows);
@@ -3206,7 +3213,7 @@ function exportAllExcel() {
   }
   header.push('休超时假(h)', '休假(天)', '超时(h)', '加班(天)',
     '手工单(张)', '手工单(剂)', '发出院(个)', '挑药(剂)',
-    '班次(次)', '早班', '晚班', '出院班', '直落');
+    '班次(次)', '早班', '晚班', '出院班', '直落', '总剂数');
   allRows.push(header);
 
   // 每人一行
@@ -3222,7 +3229,8 @@ function exportAllExcel() {
     row.push(s.presentH, s.leaveDays, s.overtimeH, s.overtimeDayDays,
       s.manualSheets||0, s.manualDoses||0, s.dischargeCount||0, s.prepMedCount||0,
       s.shiftCount||0, s.shiftCounts.早班||0, s.shiftCounts.晚班||0,
-      s.shiftCounts.出院班||0, s.shiftCounts.直落||0);
+      s.shiftCounts.出院班||0, s.shiftCounts.直落||0,
+      s.totalDoses||0);
     allRows.push(row);
   }
 
@@ -3236,7 +3244,7 @@ function exportAllExcel() {
   ws['!cols'] = colWidths;
 
   // Merge title row
-  const totalCols = 2 + daysInMonth + 13;
+  const totalCols = 2 + daysInMonth + 14;
   ws['!merges'] = [{s: {r: 0, c: 0}, e: {r: 0, c: totalCols - 1}}];
 
   XLSX.utils.book_append_sheet(wb, ws, '全员考勤');
