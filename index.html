@@ -730,6 +730,11 @@ if (_SB) {
       })().catch(e => console.error(e));
     };
 
+    // 将云端人员列表同步到 localStorage（离线时备用）
+    if (_C.people && _C.people.length) {
+      orig_savePeople([..._C.people]);
+    }
+
     console.log('✅ Supabase 云模式已启用');
   }
 
@@ -2074,9 +2079,12 @@ function init() {
   currentMonth = now.getMonth() + 1;
   currentPerson = loadCurrentPerson();
   if (!loadPeople().length) {
-    savePeople(['本人']);
     currentPerson = '本人';
-    saveCurrentPerson('本人');
+    // 不再 savePeople/saveCurrentPerson，避免持久化"本人"到 localStorage
+  } else if (!currentPerson || currentPerson === '本人') {
+    // 列表有真实人员时，自动选第一个
+    currentPerson = loadPeople()[0];
+    saveCurrentPerson(currentPerson);
   }
   if (!currentPerson) {
     currentPerson = loadPeople()[0];
