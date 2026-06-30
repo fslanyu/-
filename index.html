@@ -804,7 +804,7 @@ const STATUS = {
   present: { label: '休超时假', cls: 's-present' },
   absent:  { label: '缺勤', cls: 's-absent' },
   late:    { label: '迟到', cls: 's-late' },
-  leave:   { label: '年休假', cls: 's-leave' },
+  leave:   { label: '休假', cls: 's-leave' },
   trip:    { label: '公差', cls: 's-trip' },
   overtime:{ label: '超时', cls: 's-overtime' },
   overtime_day: { label: '加班', cls: 's-overtime_day' },
@@ -819,7 +819,7 @@ const STATUS_ORDER = ['present','absent','late','leave','trip','overtime','overt
 const PRESENT_HOURS = ['半天', '全天', '0.5', '1', '1.5', '2', '2.5', '3', '3.5', '4', '4.5', '5', '5.5', '6', '6.5', '7'];
 const TRIP_HOURS = ['0.5', '1', '1.5', '2', '2.5', '3', '3.5', '4', '4.5', '5', '5.5', '6', '6.5', '7'];
 const LEAVE_HOURS = ['半天', '全天'];
-const LEAVE_SUBTYPES = ['婚假', '陪产假', '工伤假', '丧假', '育儿假', '护理假'];
+const LEAVE_SUBTYPES = ['年休假', '婚假', '陪产假', '工伤假', '丧假', '育儿假', '护理假'];
 const OVERTIME_DAY_HOURS = ['半天', '全天'];
 // 超时时长（0.5-4，含小数）
 const OVERTIME_HOURS = ['0.5', '1', '1.5', '2', '2.5', '3', '3.5', '4'];
@@ -1766,7 +1766,7 @@ function showLeaveSubtypePicker(key) {
     if (e.target === overlay) closeLeaveSubtypePicker();
   });
 
-  let btns = `<button class="picker-btn leave" style="background:#3b6fd4;color:#fff;font-weight:bold;" onclick="pickLeaveNoSubtype('${key}')">年休假</button>`;
+  let btns = '';
   for (const st of LEAVE_SUBTYPES) {
     btns += `<button class="picker-btn leave" onclick="pickLeaveSubtype('${key}','${st}')">${st}</button>`;
   }
@@ -3437,4 +3437,3 @@ const APP_VERSION = '2026.06.17-destroy';
 </script>
 </body>
 </html>
-
