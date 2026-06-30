@@ -702,13 +702,13 @@ if (_SB) {
     // ── 工号同步 ──
     const orig_loadEmployeeIds = loadEmployeeIds;
     loadEmployeeIds = function() {
+      // 云端数据未加载（configMap 为空）→ 直接用 localStorage
+      if (Object.keys(_C.configMap).length === 0) return orig_loadEmployeeIds();
       try {
         const cloud = JSON.parse(_C.configMap['employee_ids'] || '{}');
-        // 合并 localStorage 中可能的新数据（离线时设的工号）
         const local = orig_loadEmployeeIds();
         const merged = {...cloud, ...local};
         if (JSON.stringify(merged) !== JSON.stringify(cloud)) {
-          // localStorage 有更新，回写到云端
           _C.configMap['employee_ids'] = JSON.stringify(merged);
           saveEmployeeIds(merged);
         }
