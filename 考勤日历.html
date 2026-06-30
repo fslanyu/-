@@ -2181,7 +2181,7 @@ function render() {
         <button class="add-person-btn" onclick="addPerson()">＋ 添加</button>
       ` : `
         <select class="identity-select" id="identitySelect" onchange="onIdentityChange(this.value)">
-          ${people.map(p => `<option value="${p}" ${p===currentPerson?'selected':''}>${p}${isPersonLocked(p)?' 🔒':''}</option>`).join('')}
+          ${people.map(p => { const eid = getEmployeeId(p); return `<option value="${p}" ${p===currentPerson?'selected':''}>${p}${eid?'('+eid+')':''}${isPersonLocked(p)?' 🔒':''}</option>`; }).join('')}
         </select>
         ${isPersonLocked(currentPerson) ? `
           ${unlockedPersons.has(currentPerson) ? `
@@ -2198,7 +2198,7 @@ function render() {
         <span style="font-size:12px;color:#888;">查看他人：</span>
         <select class="identity-select" id="viewSelect" onchange="onViewChange(this.value)" style="min-width:100px;">
           <option value="">看自己</option>
-          ${people.filter(p => p !== currentPerson || (viewTarget && viewTarget !== currentPerson)).map(p => `<option value="${p}" ${p===viewTarget?'selected':''}>${p}${isPersonLocked(p)?' 🔒':''}</option>`).join('')}
+          ${people.filter(p => p !== currentPerson || (viewTarget && viewTarget !== currentPerson)).map(p => { const eid = getEmployeeId(p); return `<option value="${p}" ${p===viewTarget?'selected':''}>${p}${eid?'('+eid+')':''}${isPersonLocked(p)?' 🔒':''}</option>`; }).join('')}
         </select>
         ${viewTarget ? `<span style="font-size:11px;color:#e67e22;">👁 只读查看</span>` : ''}
       `}
