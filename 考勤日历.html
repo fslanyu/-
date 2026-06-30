@@ -575,7 +575,7 @@ if (_SB) {
   // 延迟注入（等原始函数定义后覆盖）
   function _injectOverrides() {
     const orig_loadPeople = loadPeople;
-    loadPeople = function() { return _C.people ? [..._C.people] : []; };
+    loadPeople = function() { return (_C.people && _C.people.length) ? [..._C.people] : orig_loadPeople(); };
 
     const orig_savePeople = savePeople;
     savePeople = function(people) {
@@ -656,8 +656,16 @@ if (_SB) {
       orig_saveNotes(person, ym, data);
     };
 
-    isPersonLocked = function(name) { return !!(_C.pinMap[name] && _C.pinMap[name].locked); };
-    getPersonPin = function(name) { return (_C.pinMap[name] && _C.pinMap[name].pin) || ''; };
+    const orig_isPersonLocked = isPersonLocked;
+    const orig_getPersonPin = getPersonPin;
+    isPersonLocked = function(name) {
+      if (Object.keys(_C.pinMap).length === 0) return orig_isPersonLocked(name);
+      return !!(_C.pinMap[name] && _C.pinMap[name].locked);
+    };
+    getPersonPin = function(name) {
+      if (Object.keys(_C.pinMap).length === 0) return orig_getPersonPin(name);
+      return (_C.pinMap[name] && _C.pinMap[name].pin) || '';
+    };
     setPersonPin = function(name, pin) {
       _C.pinMap[name] = { locked: true, pin };
       (async () => { try { await _sDELETE('pins', 'person=eq.'+encodeURIComponent(name)); } catch(e) {}
