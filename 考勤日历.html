@@ -742,16 +742,40 @@ if (_SB) {
   setTimeout(() => {
     const _orig_init = init;
     init = async function() {
-      // 重试加载 Supabase 数据（部分网络慢，首次可能超时）
+      // ★ 先立即渲染（0 秒），不等待 Supabase
+      // 用户立刻看到界面，不会觉得"没反应"
+      _orig_init();
+
+      // 后台加载 Supabase 数据（用户已经在用页面了，不阻塞）
+      const _orig_savePeople_ls = savePeople; // 保存原始 localStorage 版，后面同步人员列表用
       let loaded = false;
       for (let i = 0; i < 3; i++) {
         try { await _loadAll(1); loaded = true; break; }
         catch(e) { console.error('Supabase load retry '+(i+1)+':', e); if (i < 2) await _sleep(1500*(i+1)); }
       }
-      _injectOverrides();  // 先注入覆盖，让 loadPeople 读到 Supabase 数据
-      _orig_init();         // 再初始化，网络不通时会用 localStorage 兜底
-      // 标记：是否因网络问题降级（人员列表为空）
+
+      // 安装 Supabase 覆盖（后续写入会同步到云端）
+      _injectOverrides();
       let degraded = !_C.people || !_C.people.length;
+
+      if (loaded && !degraded) {
+        // 人员列表加载成功，同步到 localStorage（离线兜底）
+        _orig_savePeople_ls([..._C.people]);
+
+        // 如果当前是"本人"且列表有真实人员，自动切换到第一个
+        if (currentPerson === '本人' && _C.people.length > 0) {
+          const first = _C.people[0];
+          if (isPersonLocked(first) && !unlockedPersons.has(first)) {
+            // 第一个人员被锁定，找第一个未锁定的
+            const fu = _C.people.find(p => !isPersonLocked(p) || unlockedPersons.has(p));
+            if (fu) { currentPerson = fu; saveCurrentPerson(fu); }
+          } else {
+            currentPerson = first;
+            saveCurrentPerson(first);
+          }
+        }
+        render();
+      }
 
       // 加载当前月份云端数据
       setTimeout(async () => {
