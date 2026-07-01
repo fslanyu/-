@@ -567,7 +567,7 @@ if (_SB) {
         for (const r of pins) _C.pinMap[r.person] = { locked: true, pin: r.pin };
         for (const r of cfg) _C.configMap[r.key] = r.value;
         return; // 成功
-      } catch(e) { lastErr = e; if (i < retries - 1) await _sleep(2000 * (i + 1)); }
+      } catch(e) { lastErr = e; if (i < retries - 1) await _sleep(1000 * (i + 1)); }
     }
     throw lastErr; // 全部失败才抛
   }
@@ -602,7 +602,7 @@ if (_SB) {
           const rows = await _sGET(`attendance?select=day_key,status_data&person=eq.${enc(person)}&year_month=eq.${ym}`);
           const d = {}; for (const r of rows) d[r.day_key] = r.status_data;
           _C.dataCache[ck] = d;
-          if (currentPerson === person && currentYear+'-'+String(currentMonth).padStart(2,'0') === ym) render();
+          if ((currentPerson === person || viewTarget === person) && currentYear+'-'+String(currentMonth).padStart(2,'0') === ym) render();
         } catch(e) { /* 静默失败，用 localStorage 兜底 */ }
       })();
       return orig_loadData(person, ym);
@@ -634,7 +634,7 @@ if (_SB) {
           const rows = await _sGET(`notes?select=day_key,note&person=eq.${enc(person)}&year_month=eq.${ym}`);
           const d = {}; for (const r of rows) d[r.day_key] = r.note;
           _C.noteCache[ck] = d;
-          if (currentPerson === person && currentYear+'-'+String(currentMonth).padStart(2,'0') === ym) render();
+          if ((currentPerson === person || viewTarget === person) && currentYear+'-'+String(currentMonth).padStart(2,'0') === ym) render();
         } catch(e) {}
       })();
       return orig_loadNotes(person, ym);
@@ -746,7 +746,7 @@ if (_SB) {
       let loaded = false;
       for (let i = 0; i < 3; i++) {
         try { await _loadAll(1); loaded = true; break; }
-        catch(e) { console.error('Supabase load retry '+(i+1)+':', e); if (i < 2) await _sleep(3000*(i+1)); }
+        catch(e) { console.error('Supabase load retry '+(i+1)+':', e); if (i < 2) await _sleep(1500*(i+1)); }
       }
       _injectOverrides();  // 先注入覆盖，让 loadPeople 读到 Supabase 数据
       _orig_init();         // 再初始化，网络不通时会用 localStorage 兜底
@@ -772,18 +772,19 @@ if (_SB) {
         }
       }, 500);
       // 实时轮询（每10秒）+ 网络恢复自动补全人员列表
+      // 只在数据实际变化时才 re-render，避免无意义的 DOM 重建造成卡顿
       setInterval(async () => {
         if (!currentPerson || !currentYear || !currentMonth) return;
         const ym = currentYear + '-' + String(currentMonth).padStart(2,'0'), enc = encodeURIComponent;
         // 轮询当前身份 + 查看目标的数据
         const pollPeople = viewTarget ? [currentPerson, viewTarget] : [currentPerson];
-        let pollOk = false;
+        let pollOk = false, changed = false;
         for (const p of pollPeople) {
           try {
             const rows = await _sGET(`attendance?select=day_key,status_data&person=eq.${enc(p)}&year_month=eq.${ym}`);
             const nd = {}; for (const r of rows) nd[r.day_key] = r.status_data;
             const ck = `${p}|${ym}`;
-            if (JSON.stringify(nd) !== JSON.stringify(_C.dataCache[ck] || {})) { _C.dataCache[ck] = nd; }
+            if (JSON.stringify(nd) !== JSON.stringify(_C.dataCache[ck] || {})) { _C.dataCache[ck] = nd; changed = true; }
             pollOk = true;
           } catch(e) {}
         }
@@ -801,7 +802,8 @@ if (_SB) {
             return;
           }
         }
-        render();
+        // 只有数据真的变了才渲染，否则跳过（避免每10秒无意义重建DOM）
+        if (changed) render();
       }, 10000);
     };
     init();  // 立即调用覆写后的 init
