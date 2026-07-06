@@ -1624,7 +1624,8 @@ function showOvertimeManager() {
   overlay.id = 'otManagerOverlay';
   overlay.addEventListener('click', (e) => { if (e.target === overlay) closeOTManager(); });
   let rowsHtml = '';
-  for (const p of people) {
+  for (let i = 0; i < people.length; i++) {
+    const p = people[i];
     const val = carryover[p] !== undefined ? carryover[p] : '';
     rowsHtml += '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #f0f0f0;">' +
       '<span style="min-width:60px;font-weight:600;">' + p + '</span>' +
@@ -1643,7 +1644,8 @@ function showOvertimeManager() {
 function saveOTManager() {
   const people = loadPeople();
   const data = {};
-  for (const p of people) {
+  for (let i = 0; i < people.length; i++) {
+    const p = people[i];
     const el = document.getElementById('ot_' + i);
     if (!el) continue;
     const val = parseFloat(el.value);
