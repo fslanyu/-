@@ -2300,6 +2300,7 @@ function render() {
       <button onclick="exportFullBackup()" style="background:#10b981;color:#fff;border-color:#10b981;">💾 备份数据</button>
       <button onclick="importFullBackup()">📥 恢复数据</button>
       ${isAdmin ? '<button onclick="clearAllLocks()" style="background:#ef4444;color:#fff;border-color:#ef4444;">🔓 清除所有锁定</button>' : ''}
+      ${isAdmin ? '<button onclick="clearJuneData()" style="background:#f97316;color:#fff;border-color:#f97316;">🗑 清除6月及之前数据</button>' : ''}
       ${isAdmin ? '<button onclick="clearAllData()" style="background:#dc2626;color:#fff;border-color:#dc2626;">🗑 清除所有考勤数据</button>' : ''}
       ${isAdmin ? '<button onclick="embedDataToFile()" style="background:#8b5cf6;color:#fff;border-color:#8b5cf6;">📦 嵌入数据到文件</button>' : ''}
     </div>
@@ -2614,6 +2615,84 @@ function clearAllData() {
   }
   showToast(`🗑 已清除 ${cleared} 条考勤数据`);
   render();
+}
+
+function clearJuneData() {
+  if (!isAdmin) return;
+  if (!confirm('⚠️ 将清除2026年6月及之前所有人员的考勤数据和备注！\n\n7月数据不受影响。此操作不可撤销，确定继续？')) return;
+  if (!_SB) {
+    // 仅 localStorage 模式
+    let cleared = 0;
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i);
+      const m = key.match(/^att_[\u4e00-\u9fa5a-zA-Z0-9]+_(\d{4}-\d{2})$/);
+      const nm = key.match(/^att_note_[\u4e00-\u9fa5a-zA-Z0-9]+_(\d{4}-\d{2})$/);
+      const ym = m ? m[1] : (nm ? nm[1] : null);
+      if (ym && ym <= '2026-06') {
+        localStorage.removeItem(key);
+        cleared++;
+      }
+    }
+    showToast(`🗑 已清除 ${cleared} 条6月及之前数据`);
+    render();
+    return;
+  }
+  // Supabase 模式：删除云端数据
+  (async () => {
+    showToast('⏳ 正在清除云端数据...');
+    let deleted = 0;
+    try {
+      const enc = encodeURIComponent;
+      // 1. 获取所有 <= 2026-06 的考勤记录
+      const attRows = await _sGET('attendance?select=id,year_month&year_month=lte.2026-06&order=id');
+      // 分批删除（每批最多删约 500 条，Supabase DELETE 有限制）
+      for (let i = 0; i < attRows.length; i += 500) {
+        const batch = attRows.slice(i, i + 500);
+        const ids = batch.map(r => r.id);
+        const filter = 'id=in.(' + ids.join(',') + ')';
+        await fetch(`${SUPABASE_URL}/rest/v1/attendance?${filter}`, {
+          method: 'DELETE',
+          headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, Prefer: 'return=minimal' }
+        });
+        deleted += batch.length;
+      }
+      // 2. 删除备注
+      const noteRows = await _sGET('notes?select=id&year_month=lte.2026-06&order=id');
+      for (let i = 0; i < noteRows.length; i += 500) {
+        const batch = noteRows.slice(i, i + 500);
+        const ids = batch.map(r => r.id);
+        const filter = 'id=in.(' + ids.join(',') + ')';
+        await fetch(`${SUPABASE_URL}/rest/v1/notes?${filter}`, {
+          method: 'DELETE',
+          headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, Prefer: 'return=minimal' }
+        });
+      }
+      // 3. 清除 localStorage 对应月份
+      let lc = 0;
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const key = localStorage.key(i);
+        const m = key.match(/^att_[\u4e00-\u9fa5a-zA-Z0-9]+_(\d{4}-\d{2})$/);
+        const nm = key.match(/^att_note_[\u4e00-\u9fa5a-zA-Z0-9]+_(\d{4}-\d{2})$/);
+        const ym = m ? m[1] : (nm ? nm[1] : null);
+        if (ym && ym <= '2026-06') {
+          localStorage.removeItem(key);
+          lc++;
+        }
+      }
+      showToast(`✅ 已清除 ${deleted} 条云端记录 + ${lc} 条本地缓存`);
+      // 清空内存缓存
+      for (const ck of Object.keys(_C.dataCache)) {
+        if (ck.endsWith('|2026-06') || ck.split('|')[1] < '2026-06') delete _C.dataCache[ck];
+      }
+      for (const ck of Object.keys(_C.noteCache)) {
+        if (ck.endsWith('|2026-06') || ck.split('|')[1] < '2026-06') delete _C.noteCache[ck];
+      }
+      render();
+    } catch(e) {
+      showToast('❌ 清除失败：' + e.message, true);
+      console.error(e);
+    }
+  })();
 }
 
 function setView(mode) {
