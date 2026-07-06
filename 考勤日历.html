@@ -3135,7 +3135,7 @@ function renderStats() {
       <div class="stat-item" style="background:#fff7ed;padding:4px 10px;border-radius:6px;flex-basis:100%;">
         ⏱ 超时余额：${otBal.carried > 0 ? `上月结转 <b>${otBal.carried}</b>h + ` : ''}本月超时 <b>${otBal.overtime}</b>h − 已补休 <b>${otBal.present}</b>h = 净余额 <b style="color:${otBal.balance >= 0 ? '#2d8a2d' : '#d14343'}">${otBal.balance}</b>h
       </div>
-      ${(() => { const q = getPersonLeaveQuota(displayPerson); return q.hasQuota ? `<div class="stat-item" style="background:#fff7ed;padding:4px 10px;border-radius:6px;flex-basis:100%;">🏖 年休假：${q.carryover > 0 ? `上年结转 <b>${q.carryover}</b>天 + ` : ``}今年额度 <b>${q.allocation}</b>天 = 总额 <b>${q.total}</b>天 | 已休 <b>${q.used}</b>天 | 剩余 <b style=\"color:${q.remaining > 0 ? '#2d8a2d' : '#d14343'}\">${q.remaining}</b>天</div>` : ''; })()}
+      ${(() => { const q = getPersonLeaveQuota(displayPerson); return `<div class=\"stat-item\" style=\"background:#fff7ed;padding:4px 10px;border-radius:6px;flex-basis:100%;\">🏖 年休假：总额 <b>${q.total}</b>天 − 已休 <b>${q.used}</b>天 = 剩余 <b>${q.remaining}</b>天</div>`; })()}
       <div class="stat-item">👤 <b>${displayPerson}</b>${viewTarget ? ' <span style="font-size:10px;color:#e67e22;">(👁只读)</span>' : ''}</div>
       <div class="stat-item">本月共 <b>${daysInMonth}</b> 天</div>
       <div class="stat-item">已登记 <b>${marked}</b></div>
