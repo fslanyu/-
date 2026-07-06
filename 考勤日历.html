@@ -594,7 +594,7 @@ if (_SB) {
     const orig_loadData = loadData;
     loadData = function(person, ym) {
       const ck = `${person}|${ym}`;
-      if (_C.dataCache[ck]) return _C.dataCache[ck];
+      if (_C.dataCache[ck]) return {..._C.dataCache[ck]};
       // 触发 Supabase 懒加载
       (async () => {
         try {
