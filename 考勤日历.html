@@ -1541,7 +1541,7 @@ function unlockPersonPermanently(name) {
   });
 }
 
-// ── 年休假额度管理弹窗（仅管理员） ──
+// ── 年休假额度管理弹窗（仅管理员）──
 function showLeaveQuotaManager() {
   if (!isAdmin) return;
   const people = loadPeople();
@@ -1549,32 +1549,29 @@ function showLeaveQuotaManager() {
   const overlay = document.createElement('div');
   overlay.className = 'sheet-overlay';
   overlay.id = 'quotaManagerOverlay';
-  overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) closeQuotaManager();
-  });
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) closeQuotaManager(); });
   let rowsHtml = '';
   for (const p of people) {
     const q = quotas[p] || {};
-    const total = q.total || '';
+    const carry = q.carryover || '';
+    const alloc = q.allocation || q.total || '';
     const year = q.year || currentYear;
-    rowsHtml += `
-      <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #f0f0f0;">
-        <span style="min-width:60px;font-weight:600;">${p}</span>
-        <input id="quota_${p.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g,'_')}" type="number" min="0" max="30" step="0.5" value="${total}" placeholder="额度(天)" style="width:80px;padding:6px;border:1px solid #ddd;border-radius:6px;font-size:14px;">
-        <span style="font-size:12px;color:#888;">天/年 (${year})</span>
-      </div>`;
+    rowsHtml += '<div style="display:flex;align-items:center;gap:6px;padding:8px 0;border-bottom:1px solid #f0f0f0;">' +
+      '<span style="min-width:60px;font-weight:600;font-size:14px;">' + p + '</span>' +
+      '<span style="font-size:11px;color:#888;">结转</span>' +
+      '<input id="quota_carry_' + p.replace(/[^a-zA-Z0-9\\u4e00-\\u9fa5]/g,'_') + '" type="number" min="0" max="30" step="0.5" value="' + carry + '" placeholder="0" style="width:50px;padding:6px;border:1px solid #ddd;border-radius:6px;font-size:13px;text-align:center;">' +
+      '<span style="font-size:13px;">+</span>' +
+      '<span style="font-size:11px;color:#888;">额度</span>' +
+      '<input id="quota_alloc_' + p.replace(/[^a-zA-Z0-9\\u4e00-\\u9fa5]/g,'_') + '" type="number" min="0" max="30" step="0.5" value="' + alloc + '" placeholder="0" style="width:50px;padding:6px;border:1px solid #ddd;border-radius:6px;font-size:13px;text-align:center;">' +
+      '<span style="font-size:11px;color:#888;">天 (' + year + ')</span></div>';
   }
-  overlay.innerHTML = `
-    <div class="sheet" style="max-height:80vh;overflow-y:auto;"><div class="sheet-handle"></div>
-      <h3>🏖 管理年休假额度</h3>
-      <p style="font-size:12px;color:#888;margin-bottom:8px;">上年结转 + 今年额度 = 年休假总额。留空表示未设置。</p>
-      ${rowsHtml}
-      <div class="sheet-btns" style="margin-top:12px;">
-        <button class="btn-cancel" onclick="closeQuotaManager()">取消</button>
-        <button class="btn-confirm" onclick="saveQuotaManager()">💾 保存</button>
-      </div>
-    </div>
-  `;
+  overlay.innerHTML = '<div class="sheet" style="max-height:80vh;overflow-y:auto;"><div class="sheet-handle"></div>' +
+    '<h3>🏖 管理年休假额度</h3>' +
+    '<p style="font-size:12px;color:#888;margin-bottom:8px;">上年结转 + 当年额度 = 年休假总额</p>' +
+    rowsHtml +
+    '<div class="sheet-btns" style="margin-top:12px;">' +
+    '<button class="btn-cancel" onclick="closeQuotaManager()">取消</button>' +
+    '<button class="btn-confirm" onclick="saveQuotaManager()">💾 保存</button></div></div>';
   document.body.appendChild(overlay);
 }
 
