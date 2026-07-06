@@ -439,6 +439,9 @@ body {
   -webkit-appearance: none; min-height: 46px;
 }
 .sheet input:focus, .sheet select:focus { border-color: var(--primary); }
+.sheet input[type=number]::-webkit-outer-spin-button,
+.sheet input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.sheet input[type=number] { -moz-appearance: textfield; }
 .sheet .sheet-btns { display: flex; gap: 8px; margin-top: 14px; }
 .sheet .sheet-btns button {
   flex: 1; padding: 12px; border-radius: 10px; cursor: pointer;
@@ -527,7 +530,7 @@ body {
 // 填入 URL 和 KEY 后自动启用；留 'xxxx' 则保持本地模式
 // ════════════════════════════════════════════════════════
 const SUPABASE_URL = 'https://vqtpvdmdjjraxgvdqdri.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZxdHB2ZG1kampyYXhndmRxZHJpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEwODcxMzQsImV4cCI6MjA5NjY2MzEzNH0.-7gb-w8QgxXfuavPy_s8b4iWNtao38F9QdhKY_69rTs';
+const SUPABASE_KEY = 'sb_publishable_iZI1HfOLJqFntgBxkjhD5g_DycELeiQ';
 const _SB = !!(SUPABASE_URL && SUPABASE_KEY && !SUPABASE_URL.includes('xxxx'));
 
 if (_SB) {
@@ -535,23 +538,23 @@ if (_SB) {
 
   async function _sGET(p) {
     const r = await fetch(`${SUPABASE_URL}/rest/v1/${p}`, {
-      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` }
+      headers: { apikey: SUPABASE_KEY }
     }); if (!r.ok) throw new Error(`${p}: ${r.status}`); return r.json();
   }
   async function _sPOST(t, b) {
     const r = await fetch(`${SUPABASE_URL}/rest/v1/${t}`, {
-      method: 'POST', headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`,
+      method: 'POST', headers: { apikey: SUPABASE_KEY,
         'Content-Type': 'application/json', Prefer: 'return=minimal' }, body: JSON.stringify(b) });
     if (!r.ok) throw new Error(`POST ${t}: ${r.status}`);
   }
   async function _sPATCH(t, m, b) {
     await fetch(`${SUPABASE_URL}/rest/v1/${t}?${m}`, {
-      method: 'PATCH', headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`,
+      method: 'PATCH', headers: { apikey: SUPABASE_KEY,
         'Content-Type': 'application/json', Prefer: 'return=minimal' }, body: JSON.stringify(b) });
   }
   async function _sDELETE(t, m) {
     await fetch(`${SUPABASE_URL}/rest/v1/${t}?${m}`, {
-      method: 'DELETE', headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`,
+      method: 'DELETE', headers: { apikey: SUPABASE_KEY,
         Prefer: 'return=minimal' } });
   }
 
@@ -567,7 +570,7 @@ if (_SB) {
         for (const r of pins) _C.pinMap[r.person] = { locked: true, pin: r.pin };
         for (const r of cfg) _C.configMap[r.key] = r.value;
         return; // 成功
-      } catch(e) { lastErr = e; if (i < retries - 1) await _sleep(2000 * (i + 1)); }
+      } catch(e) { lastErr = e; if (i < retries - 1) await _sleep(1000 * (i + 1)); }
     }
     throw lastErr; // 全部失败才抛
   }
@@ -575,7 +578,7 @@ if (_SB) {
   // 延迟注入（等原始函数定义后覆盖）
   function _injectOverrides() {
     const orig_loadPeople = loadPeople;
-    loadPeople = function() { return _C.people ? [..._C.people] : []; };
+    loadPeople = function() { return (_C.people && _C.people.length) ? [..._C.people] : orig_loadPeople(); };
 
     const orig_savePeople = savePeople;
     savePeople = function(people) {
@@ -585,16 +588,16 @@ if (_SB) {
       (async () => {
         const old = new Set(oldPeople), now = new Set(people), enc = encodeURIComponent;
         // POST 新增的人员
-        for (const n of now) { if (!old.has(n)) try { const r = await fetch(`${SUPABASE_URL}/rest/v1/people`, {method:'POST', headers:{apikey:SUPABASE_KEY,Authorization:`Bearer ${SUPABASE_KEY}`,'Content-Type':'application/json',Prefer:'return=minimal'}, body:JSON.stringify({name:n})}); if (!r.ok) console.error('savePeople POST failed:', r.status); } catch(e) { console.error('savePeople POST error:', e); } }
+        for (const n of now) { if (!old.has(n)) try { const r = await fetch(`${SUPABASE_URL}/rest/v1/people`, {method:'POST', headers:{apikey:SUPABASE_KEY,'Content-Type':'application/json',Prefer:'return=minimal'}, body:JSON.stringify({name:n})}); if (!r.ok) console.error('savePeople POST failed:', r.status); } catch(e) { console.error('savePeople POST error:', e); } }
         // DELETE 被移除的人员
-        for (const n of old) { if (!now.has(n)) try { const r = await fetch(`${SUPABASE_URL}/rest/v1/people?name=eq.${enc(n)}`, {method:'DELETE', headers:{apikey:SUPABASE_KEY,Authorization:`Bearer ${SUPABASE_KEY}`,Prefer:'return=minimal'}}); if (!r.ok) console.error('savePeople DELETE failed:', r.status); } catch(e) { console.error('savePeople DELETE error:', e); } }
+        for (const n of old) { if (!now.has(n)) try { const r = await fetch(`${SUPABASE_URL}/rest/v1/people?name=eq.${enc(n)}`, {method:'DELETE', headers:{apikey:SUPABASE_KEY,Prefer:'return=minimal'}}); if (!r.ok) console.error('savePeople DELETE failed:', r.status); } catch(e) { console.error('savePeople DELETE error:', e); } }
       })().catch(e => console.error(e));
     };
 
     const orig_loadData = loadData;
     loadData = function(person, ym) {
       const ck = `${person}|${ym}`;
-      if (_C.dataCache[ck]) return _C.dataCache[ck];
+      if (_C.dataCache[ck]) return {..._C.dataCache[ck]};
       // 触发 Supabase 懒加载
       (async () => {
         try {
@@ -602,14 +605,16 @@ if (_SB) {
           const rows = await _sGET(`attendance?select=day_key,status_data&person=eq.${enc(person)}&year_month=eq.${ym}`);
           const d = {}; for (const r of rows) d[r.day_key] = r.status_data;
           _C.dataCache[ck] = d;
-          if (currentPerson === person && currentYear+'-'+String(currentMonth).padStart(2,'0') === ym) render();
+          if ((currentPerson === person || viewTarget === person) && currentYear+'-'+String(currentMonth).padStart(2,'0') === ym) render();
         } catch(e) { /* 静默失败，用 localStorage 兜底 */ }
       })();
       return orig_loadData(person, ym);
     };
     const orig_saveData = saveData;
     saveData = function(person, ym, data) {
-      _C.dataCache[`${person}|${ym}`] = {...data};
+      const ck = `${person}|${ym}`;
+      const oldData = _C.dataCache[ck] || {};
+      _C.dataCache[ck] = {...data};
       const enc = encodeURIComponent;
       for (const [dk, sd] of Object.entries(data)) {
         (async () => {
@@ -620,6 +625,17 @@ if (_SB) {
                       : await _sPOST('attendance', {person, year_month: ym, day_key: dk, status_data: sd});
           } catch(e) { console.error(e); }
         })();
+      }
+      // DELETE keys removed from data (e.g. admin clears a day, employee deletes within 3-day window)
+      for (const dk of Object.keys(oldData)) {
+        if (!(dk in data)) {
+          (async () => {
+            try {
+              const m = `person=eq.${enc(person)}&year_month=eq.${ym}&day_key=eq.${enc(dk)}`;
+              await _sDELETE('attendance', m);
+            } catch(e) { console.error(e); }
+          })();
+        }
       }
       orig_saveData(person, ym, data);
     };
@@ -634,7 +650,7 @@ if (_SB) {
           const rows = await _sGET(`notes?select=day_key,note&person=eq.${enc(person)}&year_month=eq.${ym}`);
           const d = {}; for (const r of rows) d[r.day_key] = r.note;
           _C.noteCache[ck] = d;
-          if (currentPerson === person && currentYear+'-'+String(currentMonth).padStart(2,'0') === ym) render();
+          if ((currentPerson === person || viewTarget === person) && currentYear+'-'+String(currentMonth).padStart(2,'0') === ym) render();
         } catch(e) {}
       })();
       return orig_loadNotes(person, ym);
@@ -656,8 +672,16 @@ if (_SB) {
       orig_saveNotes(person, ym, data);
     };
 
-    isPersonLocked = function(name) { return !!(_C.pinMap[name] && _C.pinMap[name].locked); };
-    getPersonPin = function(name) { return (_C.pinMap[name] && _C.pinMap[name].pin) || ''; };
+    const orig_isPersonLocked = isPersonLocked;
+    const orig_getPersonPin = getPersonPin;
+    isPersonLocked = function(name) {
+      if (Object.keys(_C.pinMap).length === 0) return orig_isPersonLocked(name);
+      return !!(_C.pinMap[name] && _C.pinMap[name].locked);
+    };
+    getPersonPin = function(name) {
+      if (Object.keys(_C.pinMap).length === 0) return orig_getPersonPin(name);
+      return (_C.pinMap[name] && _C.pinMap[name].pin) || '';
+    };
     setPersonPin = function(name, pin) {
       _C.pinMap[name] = { locked: true, pin };
       (async () => { try { await _sDELETE('pins', 'person=eq.'+encodeURIComponent(name)); } catch(e) {}
@@ -694,13 +718,13 @@ if (_SB) {
     // ── 工号同步 ──
     const orig_loadEmployeeIds = loadEmployeeIds;
     loadEmployeeIds = function() {
+      // 云端数据未加载（configMap 为空）→ 直接用 localStorage
+      if (Object.keys(_C.configMap).length === 0) return orig_loadEmployeeIds();
       try {
         const cloud = JSON.parse(_C.configMap['employee_ids'] || '{}');
-        // 合并 localStorage 中可能的新数据（离线时设的工号）
         const local = orig_loadEmployeeIds();
         const merged = {...cloud, ...local};
         if (JSON.stringify(merged) !== JSON.stringify(cloud)) {
-          // localStorage 有更新，回写到云端
           _C.configMap['employee_ids'] = JSON.stringify(merged);
           saveEmployeeIds(merged);
         }
@@ -722,6 +746,30 @@ if (_SB) {
       })().catch(e => console.error(e));
     };
 
+    // ── 超时结转同步 ──
+    const STORAGE_OT_CARRYOVER = 'attendance_ot_carryover';
+    loadOvertimeCarryover = function() {
+      try { return JSON.parse(_C.configMap['overtime_carryover'] || '{}'); }
+      catch { return {}; }
+    };
+    saveOvertimeCarryover = function(data) {
+      _C.configMap['overtime_carryover'] = JSON.stringify(data);
+      (async () => {
+        const v = JSON.stringify(data);
+        const m = 'key=eq.overtime_carryover';
+        try {
+          const ex = await _sGET(`config?select=id&${m}`);
+          ex.length ? await _sPATCH('config', `id=eq.${ex[0].id}`, {value: v})
+                    : await _sPOST('config', {key: 'overtime_carryover', value: v});
+        } catch(e) { console.error('超时结转同步失败', e); }
+      })().catch(e => console.error(e));
+    };
+
+    // 将云端人员列表同步到 localStorage（离线时备用）
+    if (_C.people && _C.people.length) {
+      orig_savePeople([..._C.people]);
+    }
+
     console.log('✅ Supabase 云模式已启用');
   }
 
@@ -729,16 +777,40 @@ if (_SB) {
   setTimeout(() => {
     const _orig_init = init;
     init = async function() {
-      // 重试加载 Supabase 数据（部分网络慢，首次可能超时）
+      // ★ 先立即渲染（0 秒），不等待 Supabase
+      // 用户立刻看到界面，不会觉得"没反应"
+      _orig_init();
+
+      // 后台加载 Supabase 数据（用户已经在用页面了，不阻塞）
+      const _orig_savePeople_ls = savePeople; // 保存原始 localStorage 版，后面同步人员列表用
       let loaded = false;
       for (let i = 0; i < 3; i++) {
         try { await _loadAll(1); loaded = true; break; }
-        catch(e) { console.error('Supabase load retry '+(i+1)+':', e); if (i < 2) await _sleep(3000*(i+1)); }
+        catch(e) { console.error('Supabase load retry '+(i+1)+':', e); if (i < 2) await _sleep(1500*(i+1)); }
       }
-      _injectOverrides();  // 先注入覆盖，让 loadPeople 读到 Supabase 数据
-      _orig_init();         // 再初始化，网络不通时会用 localStorage 兜底
-      // 标记：是否因网络问题降级（人员列表为空）
+
+      // 安装 Supabase 覆盖（后续写入会同步到云端）
+      _injectOverrides();
       let degraded = !_C.people || !_C.people.length;
+
+      if (loaded && !degraded) {
+        // 人员列表加载成功，同步到 localStorage（离线兜底）
+        _orig_savePeople_ls([..._C.people]);
+
+        // 如果当前是"本人"且列表有真实人员，自动切换到第一个
+        if (currentPerson === '本人' && _C.people.length > 0) {
+          const first = _C.people[0];
+          if (isPersonLocked(first) && !unlockedPersons.has(first)) {
+            // 第一个人员被锁定，找第一个未锁定的
+            const fu = _C.people.find(p => !isPersonLocked(p) || unlockedPersons.has(p));
+            if (fu) { currentPerson = fu; saveCurrentPerson(fu); }
+          } else {
+            currentPerson = first;
+            saveCurrentPerson(first);
+          }
+        }
+        render();
+      }
 
       // 加载当前月份云端数据
       setTimeout(async () => {
@@ -759,18 +831,19 @@ if (_SB) {
         }
       }, 500);
       // 实时轮询（每10秒）+ 网络恢复自动补全人员列表
+      // 只在数据实际变化时才 re-render，避免无意义的 DOM 重建造成卡顿
       setInterval(async () => {
         if (!currentPerson || !currentYear || !currentMonth) return;
         const ym = currentYear + '-' + String(currentMonth).padStart(2,'0'), enc = encodeURIComponent;
         // 轮询当前身份 + 查看目标的数据
         const pollPeople = viewTarget ? [currentPerson, viewTarget] : [currentPerson];
-        let pollOk = false;
+        let pollOk = false, changed = false;
         for (const p of pollPeople) {
           try {
             const rows = await _sGET(`attendance?select=day_key,status_data&person=eq.${enc(p)}&year_month=eq.${ym}`);
             const nd = {}; for (const r of rows) nd[r.day_key] = r.status_data;
             const ck = `${p}|${ym}`;
-            if (JSON.stringify(nd) !== JSON.stringify(_C.dataCache[ck] || {})) { _C.dataCache[ck] = nd; }
+            if (JSON.stringify(nd) !== JSON.stringify(_C.dataCache[ck] || {})) { _C.dataCache[ck] = nd; changed = true; }
             pollOk = true;
           } catch(e) {}
         }
@@ -788,7 +861,8 @@ if (_SB) {
             return;
           }
         }
-        render();
+        // 只有数据真的变了才渲染，否则跳过（避免每10秒无意义重建DOM）
+        if (changed) render();
       }, 10000);
     };
     init();  // 立即调用覆写后的 init
@@ -880,6 +954,58 @@ function sortPeopleById(people) {
   });
 }
 
+// ── 超时余额管理 ──
+const STORAGE_OT_CARRYOVER = 'attendance_ot_carryover';
+
+// localStorage 兜底（Supabase 模式下被 _injectOverrides 覆盖）
+function loadOvertimeCarryover() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_OT_CARRYOVER) || '{}'); }
+  catch { return {}; }
+}
+function saveOvertimeCarryoverL(data) {
+  localStorage.setItem(STORAGE_OT_CARRYOVER, JSON.stringify(data));
+}
+function saveOvertimeCarryover(data) {
+  saveOvertimeCarryoverL(data);
+}
+
+// 计算某人当月超时余额：上月结转 + 本月超时 - 本月补休
+// 计算某人某月的超时/补休小时数
+function calcMonthOT(person, ymStr) {
+  const data = loadData(person, ymStr);
+  let overtimeH = 0, presentH = 0;
+  for (const [_, v] of Object.entries(data)) {
+    const statuses = parseStatuses(v);
+    for (const s of statuses) {
+      if (s.status === 'overtime') overtimeH += parseFloat(s.hours) || 0;
+      else if (s.status === 'present') {
+        if (!s.hours || s.hours === '全天') presentH += 7;
+        else if (s.hours === '半天') presentH += 3.5;
+        else presentH += parseFloat(s.hours);
+      }
+    }
+  }
+  return { overtime: overtimeH, present: presentH };
+}
+
+// 计某人当月超时余额：自动累加过去月份 + 本月
+function calcOvertimeBalance(person, ymStr) {
+  const carryover = loadOvertimeCarryover();
+  let carried = carryover[person] || 0; // 管理员设定的初始结转（6月及之前）
+
+  // 自动累加从7月到上个月的所有月份净额
+  const [cy, cm] = ymStr.split('-').map(Number);
+  for (let m = 7; m < cm; m++) {
+    const ym = cy + '-' + String(m).padStart(2, '0');
+    const ot = calcMonthOT(person, ym);
+    carried += ot.overtime - ot.present;
+  }
+
+  // 本月数据
+  const cur = calcMonthOT(person, ymStr);
+  return { carried, overtime: cur.overtime, present: cur.present, balance: carried + cur.overtime - cur.present };
+}
+
 // ── 年休假额度管理 ──
 const STORAGE_LEAVE_QUOTAS = 'attendance_leave_quotas';
 
@@ -901,7 +1027,7 @@ function calcAnnualLeaveUsed(person, year) {
     for (const [_, v] of Object.entries(data)) {
       const statuses = parseStatuses(v);
       for (const s of statuses) {
-        if (s.status === 'leave' && s.subtype === '年休假') {
+        if (s.status === 'leave' && (!s.subtype || s.subtype === '年休假')) {
           used += (s.hours === '半天') ? 0.5 : 1;
         }
       }
@@ -910,14 +1036,18 @@ function calcAnnualLeaveUsed(person, year) {
   return used;
 }
 
-// 获取某人的年休假额度信息 { total, used, remaining, hasQuota }
+// 获取某人的年休假额度信息 { allocation, carryover, total, used, remaining, hasQuota }
 function getPersonLeaveQuota(person) {
   const quotas = loadLeaveQuotas();
   const q = quotas[person];
-  if (!q || !q.total) return { total: 0, used: 0, remaining: 0, hasQuota: false };
+  if (!q) return { allocation: 0, carryover: 0, total: 0, used: 0, remaining: 0, hasQuota: false };
+  const alloc = q.allocation || q.total || 0; // 兼容旧数据（旧版只有 total）
+  const carry = q.carryover || 0;
+  const total = alloc + carry;
+  if (total === 0) return { allocation: 0, carryover: 0, total: 0, used: 0, remaining: 0, hasQuota: false };
   const year = q.year || currentYear;
   const used = calcAnnualLeaveUsed(person, year);
-  return { total: q.total, used, remaining: Math.max(0, q.total - used), hasQuota: true, year };
+  return { allocation: alloc, carryover: carry, total, used, remaining: Math.max(0, total - used), hasQuota: true, year };
 }
 
 let currentYear, currentMonth, currentPerson, viewMode = 'single';
@@ -1084,7 +1214,7 @@ const EXCLUSIVE_STATUSES = ['absent', 'overtime_day'];
 // 休超时假全天 / 年休假全天 → 独占，不能再叠加
 function isFullDayExclusive(statusType, hours, subtype) {
   if (statusType === 'present' && hours === '全天') return true;
-  if (statusType === 'leave' && subtype === '年休假' && hours === '全天') return true;
+  if (statusType === 'leave' && (!subtype || subtype === '年休假') && hours === '全天') return true;
   return false;
 }
 
@@ -1429,7 +1559,7 @@ function unlockPersonPermanently(name) {
   });
 }
 
-// ── 年休假额度管理弹窗（仅管理员） ──
+// ── 年休假额度管理弹窗（仅管理员）──
 function showLeaveQuotaManager() {
   if (!isAdmin) return;
   const people = loadPeople();
@@ -1437,44 +1567,42 @@ function showLeaveQuotaManager() {
   const overlay = document.createElement('div');
   overlay.className = 'sheet-overlay';
   overlay.id = 'quotaManagerOverlay';
-  overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) closeQuotaManager();
-  });
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) closeQuotaManager(); });
   let rowsHtml = '';
-  for (const p of people) {
+  for (var i = 0; i < people.length; i++) { var p = people[i];
     const q = quotas[p] || {};
-    const total = q.total || '';
+    const carry = q.carryover || '';
+    const alloc = q.allocation || q.total || '';
     const year = q.year || currentYear;
-    rowsHtml += `
-      <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #f0f0f0;">
-        <span style="min-width:60px;font-weight:600;">${p}</span>
-        <input id="quota_${p.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g,'_')}" type="number" min="0" max="30" step="0.5" value="${total}" placeholder="额度(天)" style="width:80px;padding:6px;border:1px solid #ddd;border-radius:6px;font-size:14px;">
-        <span style="font-size:12px;color:#888;">天/年 (${year})</span>
-      </div>`;
+    rowsHtml += '<div style="display:flex;align-items:center;gap:6px;padding:8px 0;border-bottom:1px solid #f0f0f0;">' +
+      '<span style="min-width:60px;font-weight:600;font-size:14px;">' + p + '</span>' +
+      '<span style="font-size:11px;color:#888;">结转</span>' +
+      '<input id="quota_carry_' + i + '" type="number" min="0" max="30" step="0.5" value="' + carry + '" placeholder="0" style="width:50px;padding:6px;border:1px solid #ddd;border-radius:6px;font-size:13px;text-align:center;">' +
+      '<span style="font-size:13px;">+</span>' +
+      '<span style="font-size:11px;color:#888;">额度</span>' +
+      '<input id="quota_alloc_' + i + '" type="number" min="0" max="30" step="0.5" value="' + alloc + '" placeholder="0" style="width:50px;padding:6px;border:1px solid #ddd;border-radius:6px;font-size:13px;text-align:center;">' +
+      '<span style="font-size:11px;color:#888;">天 (' + year + ')</span></div>';
   }
-  overlay.innerHTML = `
-    <div class="sheet" style="max-height:80vh;overflow-y:auto;"><div class="sheet-handle"></div>
-      <h3>🏖 管理年休假额度</h3>
-      <p style="font-size:12px;color:#888;margin-bottom:8px;">设置每人每年的年休假总额（天）。留空表示未设置。</p>
-      ${rowsHtml}
-      <div class="sheet-btns" style="margin-top:12px;">
-        <button class="btn-cancel" onclick="closeQuotaManager()">取消</button>
-        <button class="btn-confirm" onclick="saveQuotaManager()">💾 保存</button>
-      </div>
-    </div>
-  `;
+  overlay.innerHTML = '<div class="sheet" style="max-height:80vh;overflow-y:auto;"><div class="sheet-handle"></div>' +
+    '<h3>🏖 管理年休假额度</h3>' +
+    '<p style="font-size:12px;color:#888;margin-bottom:8px;">上年结转 + 当年额度 = 年休假总额</p>' +
+    rowsHtml +
+    '<div class="sheet-btns" style="margin-top:12px;">' +
+    '<button class="btn-cancel" onclick="closeQuotaManager()">取消</button>' +
+    '<button class="btn-confirm" onclick="saveQuotaManager()">💾 保存</button></div></div>';
   document.body.appendChild(overlay);
 }
 
 function saveQuotaManager() {
   const people = loadPeople();
   const quotas = {};
-  for (const p of people) {
-    const el = document.getElementById('quota_' + p.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g,'_'));
-    if (!el) continue;
-    const val = parseFloat(el.value);
-    if (!isNaN(val) && val >= 0) {
-      quotas[p] = { total: val, year: currentYear };
+  for (var i = 0; i < people.length; i++) { var p = people[i];
+    const carryEl = document.getElementById('quota_carry_' + i);
+    const allocEl = document.getElementById('quota_alloc_' + i);
+    const carry = parseFloat(carryEl?.value) || 0;
+    const alloc = parseFloat(allocEl?.value) || 0;
+    if (carry > 0 || alloc > 0) {
+      quotas[p] = { carryover: carry, allocation: alloc, year: currentYear };
     }
   }
   saveLeaveQuotas(quotas);
@@ -1482,9 +1610,53 @@ function saveQuotaManager() {
   showToast('✅ 年休假额度已保存');
   render();
 }
-
 function closeQuotaManager() {
   document.getElementById('quotaManagerOverlay')?.remove();
+}
+
+// ── 超时结转管理（仅管理员）──
+function showOvertimeManager() {
+  if (!isAdmin) return;
+  const people = loadPeople();
+  const carryover = loadOvertimeCarryover();
+  const overlay = document.createElement('div');
+  overlay.className = 'sheet-overlay';
+  overlay.id = 'otManagerOverlay';
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) closeOTManager(); });
+  let rowsHtml = '';
+  for (const p of people) {
+    const val = carryover[p] !== undefined ? carryover[p] : '';
+    rowsHtml += '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #f0f0f0;">' +
+      '<span style="min-width:60px;font-weight:600;">' + p + '</span>' +
+      '<input id="ot_' + i + '" type="number" step="0.5" value="' + val + '" placeholder="结转(h)" style="width:80px;padding:6px;border:1px solid #ddd;border-radius:6px;font-size:14px;">' +
+      '<span style="font-size:12px;color:#888;">h</span></div>';
+  }
+  overlay.innerHTML = '<div class="sheet" style="max-height:80vh;overflow-y:auto;"><div class="sheet-handle"></div>' +
+    '<h3>⏱ 管理超时结转（6月剩余）</h3>' +
+    '<p style="font-size:12px;color:#888;margin-bottom:8px;">设置每人从6月结转的超时余额（小时）。当前余额 = 结转 + 7月超时 − 7月补休</p>' +
+    rowsHtml +
+    '<div class="sheet-btns" style="margin-top:12px;">' +
+    '<button class="btn-cancel" onclick="closeOTManager()">取消</button>' +
+    '<button class="btn-confirm" onclick="saveOTManager()">💾 保存</button></div></div>';
+  document.body.appendChild(overlay);
+}
+function saveOTManager() {
+  const people = loadPeople();
+  const data = {};
+  for (const p of people) {
+    const el = document.getElementById('ot_' + i);
+    if (!el) continue;
+    const val = parseFloat(el.value);
+    if (!isNaN(val)) data[p] = val;
+    else if (el.value === '') data[p] = 0;
+  }
+  saveOvertimeCarryover(data);
+  closeOTManager();
+  showToast('✅ 超时结转已保存');
+  render();
+}
+function closeOTManager() {
+  document.getElementById('otManagerOverlay')?.remove();
 }
 
 // ── Status Picker (non-admin: 休超时假/缺勤/迟到/休假; admin: all) ──
@@ -1515,7 +1687,7 @@ function showStatusPicker(key, isFuture, currentRaw) {
 
   overlay.innerHTML = `
     <div class="sheet"><div class="sheet-handle"></div>
-      <h3>${isFuture ? '提前申报（仅限休超时假/休假）' : (isAdmin ? '选择考勤状态' : '申报考勤（可叠加多种状态）')}</h3>
+      <h3>${isFuture ? '提前申报（仅限休超时假/年休假）' : (isAdmin ? '选择考勤状态' : '申报考勤（可叠加多种状态）')}</h3>
       ${currentHtml}
       <div class="picker-btns">${btns}</div>
       <button class="picker-cancel" onclick="closeStatusPicker()">取消</button>
@@ -1679,7 +1851,7 @@ function removeStatusFromCell(key, statusType, hours) {
   const data = loadData(currentPerson, ym());
   const raw = data[key] || '';
   const existing = parseStatuses(raw);
-  // 检查是否要删除管理员填报的条目
+  // 检查是否要删除管理员填报的条目（3天窗口内员工可以删除自己的数据）
   let target;
   if (statusType === 'shift' && hours) {
     target = existing.find(s => s.status === statusType && s.hours === hours);
@@ -1711,7 +1883,7 @@ function removeStatusFromCell(key, statusType, hours) {
 function pickStatus(key, status) {
   closeStatusPicker();
   if (status === 'leave') {
-    // 休假：先选子类型，再选时长
+    // 年休假：先选子类型，再选时长
     showLeaveSubtypePicker(key);
     return;
   }
@@ -1757,7 +1929,7 @@ function pickStatus(key, status) {
   showToast(`✅ 已登记：${STATUS[status].label}`);
 }
 
-// ── 休假子类型选择器 ──
+// ── 年休假子类型选择器 ──
 function showLeaveSubtypePicker(key) {
   const overlay = document.createElement('div');
   overlay.className = 'sheet-overlay';
@@ -1773,7 +1945,7 @@ function showLeaveSubtypePicker(key) {
 
   overlay.innerHTML = `
     <div class="sheet"><div class="sheet-handle"></div>
-      <h3>选择休假类型</h3>
+      <h3>选择假期类型</h3>
       <div class="picker-btns" style="max-width:420px;">${btns}</div>
       <button class="picker-cancel" onclick="closeLeaveSubtypePicker()">取消</button>
     </div>
@@ -1785,12 +1957,17 @@ function closeLeaveSubtypePicker() {
   document.getElementById('leaveSubtypeOverlay')?.remove();
 }
 
+function pickLeaveNoSubtype(key) {
+  closeLeaveSubtypePicker();
+  showHourPicker(key, 'leave', null);
+}
+
 function pickLeaveSubtype(key, subtype) {
   closeLeaveSubtypePicker();
   showHourPicker(key, 'leave', subtype);
 }
 
-// ── 休假/公差时长选择器 ──
+// ── 年休假/公差时长选择器 ──
 function showHourPicker(key, statusType, leaveSubtype) {
   const overlay = document.createElement('div');
   overlay.className = 'sheet-overlay';
@@ -1801,7 +1978,7 @@ function showHourPicker(key, statusType, leaveSubtype) {
 
   let hoursList, title;
   if (statusType === 'trip') { hoursList = TRIP_HOURS; title = '公差时长'; }
-  else if (statusType === 'leave') { hoursList = LEAVE_HOURS; title = (leaveSubtype || '休假') + ' 时长'; }
+  else if (statusType === 'leave') { hoursList = LEAVE_HOURS; title = (leaveSubtype || '年休假') + ' 时长'; }
   else if (statusType === 'overtime') { hoursList = OVERTIME_HOURS; title = '超时时长'; }
   else if (statusType === 'overtime_day') { hoursList = OVERTIME_DAY_HOURS; title = '加班时长'; }
   else { hoursList = PRESENT_HOURS; title = '休超时假时长'; }
@@ -2061,9 +2238,12 @@ function init() {
   currentMonth = now.getMonth() + 1;
   currentPerson = loadCurrentPerson();
   if (!loadPeople().length) {
-    savePeople(['本人']);
     currentPerson = '本人';
-    saveCurrentPerson('本人');
+    // 不再 savePeople/saveCurrentPerson，避免持久化"本人"到 localStorage
+  } else if (!currentPerson || currentPerson === '本人') {
+    // 列表有真实人员时，自动选第一个
+    currentPerson = loadPeople()[0];
+    saveCurrentPerson(currentPerson);
   }
   if (!currentPerson) {
     currentPerson = loadPeople()[0];
@@ -2168,7 +2348,7 @@ function render() {
         <button class="add-person-btn" onclick="addPerson()">＋ 添加</button>
       ` : `
         <select class="identity-select" id="identitySelect" onchange="onIdentityChange(this.value)">
-          ${people.map(p => `<option value="${p}" ${p===currentPerson?'selected':''}>${p}${isPersonLocked(p)?' 🔒':''}</option>`).join('')}
+          ${people.map(p => { const eid = getEmployeeId(p); return `<option value="${p}" ${p===currentPerson?'selected':''}>${p}${eid?'('+eid+')':''}${isPersonLocked(p)?' 🔒':''}</option>`; }).join('')}
         </select>
         ${isPersonLocked(currentPerson) ? `
           ${unlockedPersons.has(currentPerson) ? `
@@ -2185,7 +2365,7 @@ function render() {
         <span style="font-size:12px;color:#888;">查看他人：</span>
         <select class="identity-select" id="viewSelect" onchange="onViewChange(this.value)" style="min-width:100px;">
           <option value="">看自己</option>
-          ${people.filter(p => p !== currentPerson || (viewTarget && viewTarget !== currentPerson)).map(p => `<option value="${p}" ${p===viewTarget?'selected':''}>${p}${isPersonLocked(p)?' 🔒':''}</option>`).join('')}
+          ${people.filter(p => p !== currentPerson || (viewTarget && viewTarget !== currentPerson)).map(p => { const eid = getEmployeeId(p); return `<option value="${p}" ${p===viewTarget?'selected':''}>${p}${eid?'('+eid+')':''}${isPersonLocked(p)?' 🔒':''}</option>`; }).join('')}
         </select>
         ${viewTarget ? `<span style="font-size:11px;color:#e67e22;">👁 只读查看</span>` : ''}
       `}
@@ -2196,7 +2376,7 @@ function render() {
       <div class="legend-item"><div class="legend-dot" style="background:#e6f7e6;border:2px solid #2d8a2d;"></div>休超时假</div>
       <div class="legend-item"><div class="legend-dot" style="background:#ffe8e8;border:2px solid #d14343;"></div>缺勤</div>
       <div class="legend-item"><div class="legend-dot" style="background:#fff3e0;border:2px solid #e67e22;"></div>迟到</div>
-      <div class="legend-item"><div class="legend-dot" style="background:#e8f0fe;border:2px solid #3b6fd4;"></div>休假</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#e8f0fe;border:2px solid #3b6fd4;"></div>年休假</div>
       <div class="legend-item"><div class="legend-dot" style="background:#f3e8ff;border:2px solid #7c3aed;"></div>公差</div>
       <div class="legend-item"><div class="legend-dot" style="background:#fff7ed;border:2px solid #ea580c;"></div>超时</div>
       <div class="legend-item"><div class="legend-dot" style="background:#fff0e0;border:2px solid #c2410c;"></div>加班</div>
@@ -2235,11 +2415,13 @@ function render() {
       <button onclick="window.print()">打印</button>
       ${isAdmin ? '<button class="btn-export" onclick="exportAllExcel()">导出全员 Excel</button>' : ''}
       ${isAdmin ? '<button onclick="exportAllCSV()">导出全员 CSV</button>' : ''}
-      ${isAdmin ? '<button onclick="showLeaveQuotaManager()" style="background:#f59e0b;color:#fff;border-color:#f59e0b;">🏖 管理年休假额度</button>' : ''}
+      ${isAdmin ? '<button onclick=\"showLeaveQuotaManager()\" style=\"background:#f59e0b;color:#fff;border-color:#f59e0b;\">🏖 管理年休假额度</button>' : ''}
+      ${isAdmin ? '<button onclick=\"showOvertimeManager()\" style=\"background:#f59e0b;color:#fff;border-color:#f59e0b;\">⏱ 管理超时结转</button>' : ''}
       <span style="flex:1"></span>
       <button onclick="exportFullBackup()" style="background:#10b981;color:#fff;border-color:#10b981;">💾 备份数据</button>
       <button onclick="importFullBackup()">📥 恢复数据</button>
       ${isAdmin ? '<button onclick="clearAllLocks()" style="background:#ef4444;color:#fff;border-color:#ef4444;">🔓 清除所有锁定</button>' : ''}
+      ${isAdmin ? '<button onclick="clearJuneData()" style="background:#f97316;color:#fff;border-color:#f97316;">🗑 清除6月及之前数据</button>' : ''}
       ${isAdmin ? '<button onclick="clearAllData()" style="background:#dc2626;color:#fff;border-color:#dc2626;">🗑 清除所有考勤数据</button>' : ''}
       ${isAdmin ? '<button onclick="embedDataToFile()" style="background:#8b5cf6;color:#fff;border-color:#8b5cf6;">📦 嵌入数据到文件</button>' : ''}
     </div>
@@ -2556,6 +2738,84 @@ function clearAllData() {
   render();
 }
 
+function clearJuneData() {
+  if (!isAdmin) return;
+  if (!confirm('⚠️ 将清除2026年6月及之前所有人员的考勤数据和备注！\n\n7月数据不受影响。此操作不可撤销，确定继续？')) return;
+  if (!_SB) {
+    // 仅 localStorage 模式
+    let cleared = 0;
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i);
+      const m = key.match(/^att_[\u4e00-\u9fa5a-zA-Z0-9]+_(\d{4}-\d{2})$/);
+      const nm = key.match(/^att_note_[\u4e00-\u9fa5a-zA-Z0-9]+_(\d{4}-\d{2})$/);
+      const ym = m ? m[1] : (nm ? nm[1] : null);
+      if (ym && ym <= '2026-06') {
+        localStorage.removeItem(key);
+        cleared++;
+      }
+    }
+    showToast(`🗑 已清除 ${cleared} 条6月及之前数据`);
+    render();
+    return;
+  }
+  // Supabase 模式：删除云端数据
+  (async () => {
+    showToast('⏳ 正在清除云端数据...');
+    let deleted = 0;
+    try {
+      const enc = encodeURIComponent;
+      // 1. 获取所有 <= 2026-06 的考勤记录
+      const attRows = await _sGET('attendance?select=id,year_month&year_month=lte.2026-06&order=id');
+      // 分批删除（每批最多删约 500 条，Supabase DELETE 有限制）
+      for (let i = 0; i < attRows.length; i += 500) {
+        const batch = attRows.slice(i, i + 500);
+        const ids = batch.map(r => r.id);
+        const filter = 'id=in.(' + ids.join(',') + ')';
+        await fetch(`${SUPABASE_URL}/rest/v1/attendance?${filter}`, {
+          method: 'DELETE',
+          headers: { apikey: SUPABASE_KEY, Prefer: 'return=minimal' }
+        });
+        deleted += batch.length;
+      }
+      // 2. 删除备注
+      const noteRows = await _sGET('notes?select=id&year_month=lte.2026-06&order=id');
+      for (let i = 0; i < noteRows.length; i += 500) {
+        const batch = noteRows.slice(i, i + 500);
+        const ids = batch.map(r => r.id);
+        const filter = 'id=in.(' + ids.join(',') + ')';
+        await fetch(`${SUPABASE_URL}/rest/v1/notes?${filter}`, {
+          method: 'DELETE',
+          headers: { apikey: SUPABASE_KEY, Prefer: 'return=minimal' }
+        });
+      }
+      // 3. 清除 localStorage 对应月份
+      let lc = 0;
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const key = localStorage.key(i);
+        const m = key.match(/^att_[\u4e00-\u9fa5a-zA-Z0-9]+_(\d{4}-\d{2})$/);
+        const nm = key.match(/^att_note_[\u4e00-\u9fa5a-zA-Z0-9]+_(\d{4}-\d{2})$/);
+        const ym = m ? m[1] : (nm ? nm[1] : null);
+        if (ym && ym <= '2026-06') {
+          localStorage.removeItem(key);
+          lc++;
+        }
+      }
+      showToast(`✅ 已清除 ${deleted} 条云端记录 + ${lc} 条本地缓存`);
+      // 清空内存缓存
+      for (const ck of Object.keys(_C.dataCache)) {
+        if (ck.endsWith('|2026-06') || ck.split('|')[1] < '2026-06') delete _C.dataCache[ck];
+      }
+      for (const ck of Object.keys(_C.noteCache)) {
+        if (ck.endsWith('|2026-06') || ck.split('|')[1] < '2026-06') delete _C.noteCache[ck];
+      }
+      render();
+    } catch(e) {
+      showToast('❌ 清除失败：' + e.message, true);
+      console.error(e);
+    }
+  })();
+}
+
 function setView(mode) {
   if (!isAdmin && mode === 'team') return;
   viewMode = mode;
@@ -2762,7 +3022,7 @@ function showHourPickerForAdmin(key, statusType, currentHours, leaveSubtype) {
 
   let hoursList, title;
   if (statusType === 'trip') { hoursList = TRIP_HOURS; title = '修改公差时长'; }
-  else if (statusType === 'leave') { hoursList = LEAVE_HOURS; title = '修改' + (leaveSubtype || '休假') + '时长'; }
+  else if (statusType === 'leave') { hoursList = LEAVE_HOURS; title = '修改' + (leaveSubtype || '年休假') + '时长'; }
   else if (statusType === 'overtime') { hoursList = OVERTIME_HOURS; title = '修改超时时长'; }
   else if (statusType === 'overtime_day') { hoursList = OVERTIME_DAY_HOURS; title = '修改加班时长'; }
   else { hoursList = PRESENT_HOURS; title = '修改休超时假时长'; }
@@ -2885,18 +3145,22 @@ function renderStats() {
       }
     }
     const leaveTotalDays = c.leave - leaveHalf * 0.5;
+    const otBal = calcOvertimeBalance(displayPerson, ym());
     let statsHtml = `
       <div class="stat-item" style="background:#f0f4ff;padding:4px 10px;border-radius:6px;flex-basis:100%;">
-        📊 休超时假共 <b>${presentTotalH}</b>h | 休假共 <b>${leaveTotalDays}</b>天 | 超时共 <b>${overtimeHours}</b>h
+        📊 本月 休超时假共 <b>${presentTotalH}</b>h | 年休假共 <b>${leaveTotalDays}</b>天 | 超时共 <b>${overtimeHours}</b>h
       </div>
-      ${(() => { const q = getPersonLeaveQuota(displayPerson); return q.hasQuota ? `<div class="stat-item" style="background:#fff7ed;padding:4px 10px;border-radius:6px;flex-basis:100%;">🏖 年休假：已休 <b>${q.used}</b> 天 / 总额 <b>${q.total}</b> 天 / 剩余 <b>${q.remaining}</b> 天</div>` : ''; })()}
+      <div class="stat-item" style="background:#fff7ed;padding:4px 10px;border-radius:6px;flex-basis:100%;">
+        ⏱ 超时余额：${otBal.carried > 0 ? `上月结转 <b>${otBal.carried}</b>h + ` : ''}本月超时 <b>${otBal.overtime}</b>h − 已补休 <b>${otBal.present}</b>h = 净余额 <b style="color:${otBal.balance >= 0 ? '#2d8a2d' : '#d14343'}">${otBal.balance}</b>h
+      </div>
+      ${(() => { const q = getPersonLeaveQuota(displayPerson); return `<div class=\"stat-item\" style=\"background:#fff7ed;padding:4px 10px;border-radius:6px;flex-basis:100%;\">🏖 年休假：总额 <b>${q.total}</b>天 − 已休 <b>${q.used}</b>天 = 剩余 <b>${q.remaining}</b>天</div>`; })()}
       <div class="stat-item">👤 <b>${displayPerson}</b>${viewTarget ? ' <span style="font-size:10px;color:#e67e22;">(👁只读)</span>' : ''}</div>
       <div class="stat-item">本月共 <b>${daysInMonth}</b> 天</div>
       <div class="stat-item">已登记 <b>${marked}</b></div>
       <div class="stat-item">休超时假 <b>${c.present}</b>天</div>
       <div class="stat-item">缺勤 <b>${c.absent}</b></div>
       <div class="stat-item">迟到 <b>${c.late}</b></div>
-      <div class="stat-item">休假 <b>${c.leave}</b>天${leaveHalf > 0 ? ` (含${leaveHalf}个半天)` : ''}</div>
+      <div class="stat-item">年休假 <b>${c.leave}</b>天${leaveHalf > 0 ? ` (含${leaveHalf}个半天)` : ''}</div>
       <div class="stat-item">公差 <b>${c.trip}</b>天${tripHours > 0 ? ` (${tripHours}h)` : ''}</div>
       <div class="stat-item">超时 <b>${overtimeHours}</b>h</div>
       <div class="stat-item">加班 <b>${c.overtime_day}</b>天${overtimeDayHalf > 0 ? ` (含${overtimeDayHalf}个半天)` : ''}</div>
@@ -2922,7 +3186,7 @@ function renderStats() {
       }
       const eid = getEmployeeId(p);
       const pDisplay = eid ? `${p}(${eid})` : p;
-      html += `<div class="stat-item">${pDisplay}: 休超时假<b>${c.present}</b> 缺勤<b>${c.absent}</b> 迟到<b>${c.late}</b> 休假<b>${c.leave}</b> 公差<b>${c.trip}</b> 加班<b>${c.overtime_day}</b> 手工单<b>${c.manual}</b> 班次<b>${c.shift}</b>${(() => { const q = getPersonLeaveQuota(p); return q.hasQuota ? ` 🏖<b>${q.used}/${q.total}</b>` : ''; })()}</div>`;
+      html += `<div class="stat-item">${pDisplay}: 休超时假<b>${c.present}</b> 缺勤<b>${c.absent}</b> 迟到<b>${c.late}</b> 年休假<b>${c.leave}</b> 公差<b>${c.trip}</b> 加班<b>${c.overtime_day}</b> 手工单<b>${c.manual}</b> 班次<b>${c.shift}</b>${(() => { const q = getPersonLeaveQuota(p); return q.hasQuota ? ` 🏖<b>${q.used}/${q.total}</b>` : ''; })()}</div>`;
     }
     statsDiv.innerHTML = html;
   }
@@ -3051,7 +3315,7 @@ function exportCSV() {
   csv += `\n,,\n`;
   csv += `汇总,,,\n`;
   csv += `休超时假总时长,,${s.presentH}h,\n`;
-  csv += `休假总天数,,${s.leaveDays}天,\\n`;
+  csv += `年休假总天数,,${s.leaveDays}天,\n`;
   csv += `超时总时长,,${s.overtimeH}h,\n`;
   csv += `加班总天数,,${s.overtimeDayDays}天,\n`;
   csv += `手工单总张数,,${s.manualSheets||0}张,\n`;
@@ -3091,7 +3355,7 @@ function exportAllCSV() {
   for (const p of people) { csv += `,`; }
   csv += `\n休超时假(h),,`;
   for (const p of people) { const s = calcSummary(p, ym()); csv += `,${s.presentH}`; }
-  csv += `\n休假(天),,`;
+  csv += `\n年休假(天),,`;
   for (const p of people) { const s = calcSummary(p, ym()); csv += `,${s.leaveDays}`; }
   csv += `\n超时(h),,`;
   for (const p of people) { const s = calcSummary(p, ym()); csv += `,${s.overtimeH}`; }
@@ -3175,7 +3439,7 @@ function exportExcel() {
   allRows.push([]);
   allRows.push(['汇总', '', '', '']);
   allRows.push(['休超时假总时长', 'h', s.presentH, '']);
-  allRows.push(['休假总天数', '天', s.leaveDays, '']);
+  allRows.push(['年休假总天数', '天', s.leaveDays, '']);
   allRows.push(['超时总时长', 'h', s.overtimeH, '']);
   allRows.push(['加班总天数', '天', s.overtimeDayDays, '']);
   allRows.push(['手工单总张数', '张', s.manualSheets||0, '']);
@@ -3189,6 +3453,10 @@ function exportExcel() {
   allRows.push(['  直落', '次', s.shiftCounts.直落||0, '']);
   allRows.push(['总剂数', '剂', s.totalDoses||0, '']);
   allRows.push(['总条目数', '条', s.totalItems||0, '']);
+  const otb = calcOvertimeBalance(currentPerson, ym());
+  const lq = getPersonLeaveQuota(currentPerson);
+  allRows.push(['超时余额', 'h', otb.balance, '']);
+  allRows.push(['年休假余额', '天', lq.remaining, '']);
 
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(allRows);
@@ -3218,9 +3486,10 @@ function exportAllExcel() {
     const dow = new Date(currentYear, currentMonth - 1, d).getDay();
     header.push(`${currentMonth}/${d} 星期${weekNames[dow]}`);
   }
-  header.push('休超时假(h)', '休假(天)', '超时(h)', '加班(天)',
+  header.push('休超时假(h)', '年休假(天)', '超时(h)', '加班(天)',
     '手工单(张)', '手工单(剂)', '发出院(个)', '挑药(剂)',
-    '班次(次)', '早班', '晚班', '出院班', '直落', '总剂数', '总条目数');
+    '班次(次)', '早班', '晚班', '出院班', '直落', '总剂数', '总条目数',
+    '超时余额(h)', '年休假余额(天)');
   allRows.push(header);
 
   // 每人一行
@@ -3237,7 +3506,9 @@ function exportAllExcel() {
       s.manualSheets||0, s.manualDoses||0, s.dischargeCount||0, s.prepMedCount||0,
       s.shiftCount||0, s.shiftCounts.早班||0, s.shiftCounts.晚班||0,
       s.shiftCounts.出院班||0, s.shiftCounts.直落||0,
-      s.totalDoses||0, s.totalItems||0);
+      s.totalDoses||0, s.totalItems||0,
+      calcOvertimeBalance(p, ym()).balance,
+      getPersonLeaveQuota(p).remaining);
     allRows.push(row);
   }
 
@@ -3247,11 +3518,11 @@ function exportAllExcel() {
   // Column widths
   const colWidths = [{wch: 8}, {wch: 6}];
   for (let d = 1; d <= daysInMonth; d++) colWidths.push({wch: 8});
-  for (let i = 0; i < 13; i++) colWidths.push({wch: 10});
+  for (let i = 0; i < 15; i++) colWidths.push({wch: 10});
   ws['!cols'] = colWidths;
 
   // Merge title row
-  const totalCols = 2 + daysInMonth + 15;
+  const totalCols = 2 + daysInMonth + 17;
   ws['!merges'] = [{s: {r: 0, c: 0}, e: {r: 0, c: totalCols - 1}}];
 
   XLSX.utils.book_append_sheet(wb, ws, '全员考勤');
