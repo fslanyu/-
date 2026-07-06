@@ -743,6 +743,25 @@ if (_SB) {
       })().catch(e => console.error(e));
     };
 
+    // ── 超时结转同步 ──
+    const STORAGE_OT_CARRYOVER = 'attendance_ot_carryover';
+    loadOvertimeCarryover = function() {
+      try { return JSON.parse(_C.configMap['overtime_carryover'] || '{}'); }
+      catch { return {}; }
+    };
+    saveOvertimeCarryover = function(data) {
+      _C.configMap['overtime_carryover'] = JSON.stringify(data);
+      (async () => {
+        const v = JSON.stringify(data);
+        const m = 'key=eq.overtime_carryover';
+        try {
+          const ex = await _sGET(`config?select=id&${m}`);
+          ex.length ? await _sPATCH('config', `id=eq.${ex[0].id}`, {value: v})
+                    : await _sPOST('config', {key: 'overtime_carryover', value: v});
+        } catch(e) { console.error('超时结转同步失败', e); }
+      })().catch(e => console.error(e));
+    };
+
     // 将云端人员列表同步到 localStorage（离线时备用）
     if (_C.people && _C.people.length) {
       orig_savePeople([..._C.people]);
@@ -932,6 +951,43 @@ function sortPeopleById(people) {
   });
 }
 
+// ── 超时余额管理 ──
+const STORAGE_OT_CARRYOVER = 'attendance_ot_carryover';
+
+// localStorage 兜底（Supabase 模式下被 _injectOverrides 覆盖）
+function loadOvertimeCarryover() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_OT_CARRYOVER) || '{}'); }
+  catch { return {}; }
+}
+function saveOvertimeCarryoverL(data) {
+  localStorage.setItem(STORAGE_OT_CARRYOVER, JSON.stringify(data));
+}
+function saveOvertimeCarryover(data) {
+  saveOvertimeCarryoverL(data);
+}
+
+// 计算某人当月超时余额：上月结转 + 本月超时 - 本月补休
+function calcOvertimeBalance(person, ymStr) {
+  const carryover = loadOvertimeCarryover();
+  const carried = carryover[person] || 0;
+
+  const data = loadData(person, ymStr);
+  let overtimeH = 0, presentH = 0;
+  for (const [_, v] of Object.entries(data)) {
+    const statuses = parseStatuses(v);
+    for (const s of statuses) {
+      if (s.status === 'overtime') {
+        overtimeH += parseFloat(s.hours) || 0;
+      } else if (s.status === 'present') {
+        if (!s.hours || s.hours === '全天') presentH += 7;
+        else if (s.hours === '半天') presentH += 3.5;
+        else presentH += parseFloat(s.hours);
+      }
+    }
+  }
+  return { carried, overtime: overtimeH, present: presentH, balance: carried + overtimeH - presentH };
+}
+
 // ── 年休假额度管理 ──
 const STORAGE_LEAVE_QUOTAS = 'attendance_leave_quotas';
 
@@ -962,14 +1018,18 @@ function calcAnnualLeaveUsed(person, year) {
   return used;
 }
 
-// 获取某人的年休假额度信息 { total, used, remaining, hasQuota }
+// 获取某人的年休假额度信息 { allocation, carryover, total, used, remaining, hasQuota }
 function getPersonLeaveQuota(person) {
   const quotas = loadLeaveQuotas();
   const q = quotas[person];
-  if (!q || !q.total) return { total: 0, used: 0, remaining: 0, hasQuota: false };
+  if (!q) return { allocation: 0, carryover: 0, total: 0, used: 0, remaining: 0, hasQuota: false };
+  const alloc = q.allocation || q.total || 0; // 兼容旧数据（旧版只有 total）
+  const carry = q.carryover || 0;
+  const total = alloc + carry;
+  if (total === 0) return { allocation: 0, carryover: 0, total: 0, used: 0, remaining: 0, hasQuota: false };
   const year = q.year || currentYear;
   const used = calcAnnualLeaveUsed(person, year);
-  return { total: q.total, used, remaining: Math.max(0, q.total - used), hasQuota: true, year };
+  return { allocation: alloc, carryover: carry, total, used, remaining: Math.max(0, total - used), hasQuota: true, year };
 }
 
 let currentYear, currentMonth, currentPerson, viewMode = 'single';
@@ -1507,7 +1567,7 @@ function showLeaveQuotaManager() {
   overlay.innerHTML = `
     <div class="sheet" style="max-height:80vh;overflow-y:auto;"><div class="sheet-handle"></div>
       <h3>🏖 管理年休假额度</h3>
-      <p style="font-size:12px;color:#888;margin-bottom:8px;">设置每人每年的年休假总额（天）。留空表示未设置。</p>
+      <p style="font-size:12px;color:#888;margin-bottom:8px;">上年结转 + 今年额度 = 年休假总额。留空表示未设置。</p>
       ${rowsHtml}
       <div class="sheet-btns" style="margin-top:12px;">
         <button class="btn-cancel" onclick="closeQuotaManager()">取消</button>
@@ -1522,11 +1582,12 @@ function saveQuotaManager() {
   const people = loadPeople();
   const quotas = {};
   for (const p of people) {
-    const el = document.getElementById('quota_' + p.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g,'_'));
-    if (!el) continue;
-    const val = parseFloat(el.value);
-    if (!isNaN(val) && val >= 0) {
-      quotas[p] = { total: val, year: currentYear };
+    const carryEl = document.getElementById('quota_carry_' + p.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g,'_'));
+    const allocEl = document.getElementById('quota_alloc_' + p.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g,'_'));
+    const carry = parseFloat(carryEl?.value) || 0;
+    const alloc = parseFloat(allocEl?.value) || 0;
+    if (carry > 0 || alloc > 0) {
+      quotas[p] = { carryover: carry, allocation: alloc, year: currentYear };
     }
   }
   saveLeaveQuotas(quotas);
@@ -1534,9 +1595,53 @@ function saveQuotaManager() {
   showToast('✅ 年休假额度已保存');
   render();
 }
-
 function closeQuotaManager() {
   document.getElementById('quotaManagerOverlay')?.remove();
+}
+
+// ── 超时结转管理（仅管理员）──
+function showOvertimeManager() {
+  if (!isAdmin) return;
+  const people = loadPeople();
+  const carryover = loadOvertimeCarryover();
+  const overlay = document.createElement('div');
+  overlay.className = 'sheet-overlay';
+  overlay.id = 'otManagerOverlay';
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) closeOTManager(); });
+  let rowsHtml = '';
+  for (const p of people) {
+    const val = carryover[p] !== undefined ? carryover[p] : '';
+    rowsHtml += '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #f0f0f0;">' +
+      '<span style="min-width:60px;font-weight:600;">' + p + '</span>' +
+      '<input id="ot_' + p.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g,'_') + '" type="number" step="0.5" value="' + val + '" placeholder="结转(h)" style="width:80px;padding:6px;border:1px solid #ddd;border-radius:6px;font-size:14px;">' +
+      '<span style="font-size:12px;color:#888;">h</span></div>';
+  }
+  overlay.innerHTML = '<div class="sheet" style="max-height:80vh;overflow-y:auto;"><div class="sheet-handle"></div>' +
+    '<h3>⏱ 管理超时结转（6月剩余）</h3>' +
+    '<p style="font-size:12px;color:#888;margin-bottom:8px;">设置每人从6月结转的超时余额（小时）。当前余额 = 结转 + 7月超时 − 7月补休</p>' +
+    rowsHtml +
+    '<div class="sheet-btns" style="margin-top:12px;">' +
+    '<button class="btn-cancel" onclick="closeOTManager()">取消</button>' +
+    '<button class="btn-confirm" onclick="saveOTManager()">💾 保存</button></div></div>';
+  document.body.appendChild(overlay);
+}
+function saveOTManager() {
+  const people = loadPeople();
+  const data = {};
+  for (const p of people) {
+    const el = document.getElementById('ot_' + p.replace(/[^a-zA-Z0-9\\u4e00-\\u9fa5]/g,'_'));
+    if (!el) continue;
+    const val = parseFloat(el.value);
+    if (!isNaN(val)) data[p] = val;
+    else if (el.value === '') data[p] = 0;
+  }
+  saveOvertimeCarryover(data);
+  closeOTManager();
+  showToast('✅ 超时结转已保存');
+  render();
+}
+function closeOTManager() {
+  document.getElementById('otManagerOverlay')?.remove();
 }
 
 // ── Status Picker (non-admin: 休超时假/缺勤/迟到/休假; admin: all) ──
@@ -2295,7 +2400,8 @@ function render() {
       <button onclick="window.print()">打印</button>
       ${isAdmin ? '<button class="btn-export" onclick="exportAllExcel()">导出全员 Excel</button>' : ''}
       ${isAdmin ? '<button onclick="exportAllCSV()">导出全员 CSV</button>' : ''}
-      ${isAdmin ? '<button onclick="showLeaveQuotaManager()" style="background:#f59e0b;color:#fff;border-color:#f59e0b;">🏖 管理年休假额度</button>' : ''}
+      ${isAdmin ? '<button onclick=\"showLeaveQuotaManager()\" style=\"background:#f59e0b;color:#fff;border-color:#f59e0b;\">🏖 管理年休假额度</button>' : ''}
+      ${isAdmin ? '<button onclick=\"showOvertimeManager()\" style=\"background:#f59e0b;color:#fff;border-color:#f59e0b;\">⏱ 管理超时结转</button>' : ''}
       <span style="flex:1"></span>
       <button onclick="exportFullBackup()" style="background:#10b981;color:#fff;border-color:#10b981;">💾 备份数据</button>
       <button onclick="importFullBackup()">📥 恢复数据</button>
@@ -3024,11 +3130,15 @@ function renderStats() {
       }
     }
     const leaveTotalDays = c.leave - leaveHalf * 0.5;
+    const otBal = calcOvertimeBalance(displayPerson, ym());
     let statsHtml = `
       <div class="stat-item" style="background:#f0f4ff;padding:4px 10px;border-radius:6px;flex-basis:100%;">
         📊 休超时假共 <b>${presentTotalH}</b>h | 年休假共 <b>${leaveTotalDays}</b>天 | 超时共 <b>${overtimeHours}</b>h
       </div>
-      ${(() => { const q = getPersonLeaveQuota(displayPerson); return q.hasQuota ? `<div class="stat-item" style="background:#fff7ed;padding:4px 10px;border-radius:6px;flex-basis:100%;">🏖 年休假：已休 <b>${q.used}</b> 天 / 总额 <b>${q.total}</b> 天 / 剩余 <b>${q.remaining}</b> 天</div>` : ''; })()}
+      <div class="stat-item" style="background:#fff7ed;padding:4px 10px;border-radius:6px;flex-basis:100%;">
+        ⏱ 超时余额：${otBal.carried > 0 ? `上月结转 <b>${otBal.carried}</b>h + ` : ''}本月超时 <b>${otBal.overtime}</b>h − 已补休 <b>${otBal.present}</b>h = 净余额 <b style="color:${otBal.balance >= 0 ? '#2d8a2d' : '#d14343'}">${otBal.balance}</b>h
+      </div>
+      ${(() => { const q = getPersonLeaveQuota(displayPerson); return q.hasQuota ? `<div class="stat-item" style="background:#fff7ed;padding:4px 10px;border-radius:6px;flex-basis:100%;">🏖 年休假：${q.carryover > 0 ? `上年结转 <b>${q.carryover}</b>天 + ` : ``}今年额度 <b>${q.allocation}</b>天 = 总额 <b>${q.total}</b>天 | 已休 <b>${q.used}</b>天 | 剩余 <b>${q.remaining}</b>天</div>` : ''; })()}
       <div class="stat-item">👤 <b>${displayPerson}</b>${viewTarget ? ' <span style="font-size:10px;color:#e67e22;">(👁只读)</span>' : ''}</div>
       <div class="stat-item">本月共 <b>${daysInMonth}</b> 天</div>
       <div class="stat-item">已登记 <b>${marked}</b></div>
