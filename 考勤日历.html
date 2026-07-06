@@ -967,25 +967,40 @@ function saveOvertimeCarryover(data) {
 }
 
 // 计算某人当月超时余额：上月结转 + 本月超时 - 本月补休
-function calcOvertimeBalance(person, ymStr) {
-  const carryover = loadOvertimeCarryover();
-  const carried = carryover[person] || 0;
-
+// 计算某人某月的超时/补休小时数
+function calcMonthOT(person, ymStr) {
   const data = loadData(person, ymStr);
   let overtimeH = 0, presentH = 0;
   for (const [_, v] of Object.entries(data)) {
     const statuses = parseStatuses(v);
     for (const s of statuses) {
-      if (s.status === 'overtime') {
-        overtimeH += parseFloat(s.hours) || 0;
-      } else if (s.status === 'present') {
+      if (s.status === 'overtime') overtimeH += parseFloat(s.hours) || 0;
+      else if (s.status === 'present') {
         if (!s.hours || s.hours === '全天') presentH += 7;
         else if (s.hours === '半天') presentH += 3.5;
         else presentH += parseFloat(s.hours);
       }
     }
   }
-  return { carried, overtime: overtimeH, present: presentH, balance: carried + overtimeH - presentH };
+  return { overtime: overtimeH, present: presentH };
+}
+
+// 计某人当月超时余额：自动累加过去月份 + 本月
+function calcOvertimeBalance(person, ymStr) {
+  const carryover = loadOvertimeCarryover();
+  let carried = carryover[person] || 0; // 管理员设定的初始结转（6月及之前）
+
+  // 自动累加从7月到上个月的所有月份净额
+  const [cy, cm] = ymStr.split('-').map(Number);
+  for (let m = 7; m < cm; m++) {
+    const ym = cy + '-' + String(m).padStart(2, '0');
+    const ot = calcMonthOT(person, ym);
+    carried += ot.overtime - ot.present;
+  }
+
+  // 本月数据
+  const cur = calcMonthOT(person, ymStr);
+  return { carried, overtime: cur.overtime, present: cur.present, balance: carried + cur.overtime - cur.present };
 }
 
 // ── 年休假额度管理 ──
