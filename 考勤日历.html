@@ -609,7 +609,9 @@ if (_SB) {
     };
     const orig_saveData = saveData;
     saveData = function(person, ym, data) {
-      _C.dataCache[`${person}|${ym}`] = {...data};
+      const ck = `${person}|${ym}`;
+      const oldData = _C.dataCache[ck] || {};
+      _C.dataCache[ck] = {...data};
       const enc = encodeURIComponent;
       for (const [dk, sd] of Object.entries(data)) {
         (async () => {
@@ -620,6 +622,17 @@ if (_SB) {
                       : await _sPOST('attendance', {person, year_month: ym, day_key: dk, status_data: sd});
           } catch(e) { console.error(e); }
         })();
+      }
+      // DELETE keys removed from data (e.g. admin clears a day, employee deletes within 3-day window)
+      for (const dk of Object.keys(oldData)) {
+        if (!(dk in data)) {
+          (async () => {
+            try {
+              const m = `person=eq.${enc(person)}&year_month=eq.${ym}&day_key=eq.${enc(dk)}`;
+              await _sDELETE('attendance', m);
+            } catch(e) { console.error(e); }
+          })();
+        }
       }
       orig_saveData(person, ym, data);
     };
@@ -1131,16 +1144,27 @@ function isFullDayExclusive(statusType, hours, subtype) {
 // - 缺勤/加班会清除所有其他状态，只保留自己
 // - 已有缺勤/加班时，不能再叠加其他状态
 // - 休超时假全天 / 年休假全天 也是独占状态，不能再叠加
-function appendStatus(raw, statusType, hours, subtype) {
+function canEditWithinWindow(key) {
+  // 员工可以在近3天内自由编辑（含今天），不受管理员数据保护限制
+  if (isAdmin) return true;
+  const today = new Date();
+  const threeDaysAgo = new Date();
+  threeDaysAgo.setDate(today.getDate() - 2);
+  const cutoff = dateKey(threeDaysAgo.getFullYear(), threeDaysAgo.getMonth()+1, threeDaysAgo.getDate());
+  return key >= cutoff;
+}
+
+function appendStatus(raw, statusType, hours, subtype, key) {
   const existing = parseStatuses(raw);
+  const inWindow = key ? canEditWithinWindow(key) : false;
   const isNewExclusive = EXCLUSIVE_STATUSES.includes(statusType) || isFullDayExclusive(statusType, hours, subtype);
   const hasExistingExclusive = existing.some(s =>
     EXCLUSIVE_STATUSES.includes(s.status) || isFullDayExclusive(s.status, s.hours, s.subtype)
   );
 
   if (isNewExclusive) {
-    // 非管理员：检查是否有管理员填报的条目被清除
-    if (!isAdmin && existing.some(s => s.admin)) {
+    // 非管理员且不在3天窗口内：检查是否有管理员填报的条目被清除
+    if (!isAdmin && !inWindow && existing.some(s => s.admin)) {
       return '__ADMIN_PROTECTED__';
     }
     // 缺勤/加班/全天补休：清除一切，只保留自己
@@ -1150,9 +1174,9 @@ function appendStatus(raw, statusType, hours, subtype) {
     // 已有独占状态：不允许再叠加其他状态，返回 null 表示拒绝
     return null;
   }
-  // 检查是否有同类型的管理员条目被覆盖
+  // 检查是否有同类型的管理员条目被覆盖（3天窗口内允许）
   const sameTypeAdmin = existing.find(s => s.status === statusType && s.admin);
-  if (sameTypeAdmin && !isAdmin) {
+  if (sameTypeAdmin && !isAdmin && !inWindow) {
     return '__ADMIN_PROTECTED__';
   }
   // 正常叠加：同类型替换，不同类型共存（班次例外：允许叠加多个不同班次）
@@ -1718,14 +1742,14 @@ function removeStatusFromCell(key, statusType, hours) {
   const data = loadData(currentPerson, ym());
   const raw = data[key] || '';
   const existing = parseStatuses(raw);
-  // 检查是否要删除管理员填报的条目
+  // 检查是否要删除管理员填报的条目（3天窗口内员工可以删除自己的数据）
   let target;
   if (statusType === 'shift' && hours) {
     target = existing.find(s => s.status === statusType && s.hours === hours);
   } else {
     target = existing.find(s => s.status === statusType);
   }
-  if (target && target.admin && !isAdmin) {
+  if (target && target.admin && !isAdmin && !canEditWithinWindow(key)) {
     showToast('🔒 此条目由管理员填报，无法删除', true);
     return;
   }
@@ -1781,7 +1805,7 @@ function pickStatus(key, status) {
   }
   const data = loadData(currentPerson, ym());
   const raw = data[key] || null;
-  const result = appendStatus(raw, status, null);
+  const result = appendStatus(raw, status, null, null, key);
   if (result === null) {
     showToast('⚠️ 该日期已有缺勤/加班/全天补休/年休假全天，不能再叠加其他状态', true);
     return;
@@ -1879,7 +1903,7 @@ function pickHours(key, hours, statusType, leaveSubtype) {
   closeHourPicker();
   const data = loadData(currentPerson, ym());
   const raw = data[key] || null;
-  const result = appendStatus(raw, statusType, hours, leaveSubtype);
+  const result = appendStatus(raw, statusType, hours, leaveSubtype, key);
   if (result === null) {
     showToast('⚠️ 该日期已有缺勤/加班/全天补休/年休假全天，不能再叠加其他状态', true);
     return;
@@ -1953,7 +1977,7 @@ function confirmManualQty(key) {
   const data = loadData(currentPerson, ym());
   const raw = data[key] || null;
   const doseStr = doses > 0 ? String(doses) : null;
-  const result = appendStatus(raw, 'manual', String(sheets), doseStr);
+  const result = appendStatus(raw, 'manual', String(sheets), doseStr, key);
   if (result === null) {
     showToast('⚠️ 该日期已有缺勤/加班/全天补休/年休假全天，不能再叠加其他状态', true);
     return;
@@ -2022,7 +2046,7 @@ function confirmSingleQty(key, statusType) {
   if (qty === 0) { showToast('数量不能为0', true); return; }
   const data = loadData(currentPerson, ym());
   const raw = data[key] || null;
-  const result = appendStatus(raw, statusType, String(qty), null);
+  const result = appendStatus(raw, statusType, String(qty), null, key);
   if (result === null) {
     showToast('⚠️ 该日期已有缺勤/加班/全天补休/年休假全天，不能再叠加其他状态', true);
     return;
@@ -2067,7 +2091,7 @@ function pickShift(key, shiftType) {
   closeShiftPicker();
   const data = loadData(currentPerson, ym());
   const raw = data[key] || null;
-  const result = appendStatus(raw, 'shift', shiftType);
+  const result = appendStatus(raw, 'shift', shiftType, null, key);
   if (result === null) {
     showToast('⚠️ 该日期已有缺勤/加班/全天补休/年休假全天，不能再叠加其他状态', true);
     return;
