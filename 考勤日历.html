@@ -3130,7 +3130,7 @@ function renderStats() {
     const otBal = calcOvertimeBalance(displayPerson, ym());
     let statsHtml = `
       <div class="stat-item" style="background:#f0f4ff;padding:4px 10px;border-radius:6px;flex-basis:100%;">
-        📊 休超时假共 <b>${presentTotalH}</b>h | 年休假共 <b>${leaveTotalDays}</b>天 | 超时共 <b>${overtimeHours}</b>h
+        📊 本月 休超时假共 <b>${presentTotalH}</b>h | 年休假共 <b>${leaveTotalDays}</b>天 | 超时共 <b>${overtimeHours}</b>h
       </div>
       <div class="stat-item" style="background:#fff7ed;padding:4px 10px;border-radius:6px;flex-basis:100%;">
         ⏱ 超时余额：${otBal.carried > 0 ? `上月结转 <b>${otBal.carried}</b>h + ` : ''}本月超时 <b>${otBal.overtime}</b>h − 已补休 <b>${otBal.present}</b>h = 净余额 <b style="color:${otBal.balance >= 0 ? '#2d8a2d' : '#d14343'}">${otBal.balance}</b>h
