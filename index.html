@@ -439,6 +439,9 @@ body {
   -webkit-appearance: none; min-height: 46px;
 }
 .sheet input:focus, .sheet select:focus { border-color: var(--primary); }
+.sheet input[type=number]::-webkit-outer-spin-button,
+.sheet input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.sheet input[type=number] { -moz-appearance: textfield; }
 .sheet .sheet-btns { display: flex; gap: 8px; margin-top: 14px; }
 .sheet .sheet-btns button {
   flex: 1; padding: 12px; border-radius: 10px; cursor: pointer;
