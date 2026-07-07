@@ -748,12 +748,18 @@ if (_SB) {
 
     // ── 超时结转同步 ──
     const STORAGE_OT_CARRYOVER = 'attendance_ot_carryover';
+    const orig_loadOTC = loadOvertimeCarryover;
+    const orig_saveOTC = saveOvertimeCarryover;
     loadOvertimeCarryover = function() {
-      try { return JSON.parse(_C.configMap['overtime_carryover'] || '{}'); }
-      catch { return {}; }
+      try {
+        const cloud = JSON.parse(_C.configMap['overtime_carryover'] || '{}');
+        if (Object.keys(cloud).length > 0) return cloud;
+        return orig_loadOTC();
+      } catch { return orig_loadOTC(); }
     };
     saveOvertimeCarryover = function(data) {
       _C.configMap['overtime_carryover'] = JSON.stringify(data);
+      orig_saveOTC(data);
       (async () => {
         const v = JSON.stringify(data);
         const m = 'key=eq.overtime_carryover';
@@ -874,6 +880,13 @@ if (_SB) {
 <div class="container" id="app"></div>
 
 <script>
+// ═══ 全局错误捕获（帮助排查问题）═══
+window.addEventListener('error', function(e) {
+  var msg = '❌ JS错误: ' + (e.message || e.error || '未知错误') + ' (行' + e.lineno + ':' + e.colno + ')';
+  console.error(msg, e);
+  var el = document.getElementById('app');
+  if (el) el.insertAdjacentHTML('afterbegin', '<div style=\"background:#fee;color:#c00;padding:8px 12px;margin:4px;border-radius:6px;font-size:13px;white-space:pre-wrap;word-break:break-all;\">' + msg + '</div>');
+});
 const STATUS = {
   present: { label: '休超时假', cls: 's-present' },
   absent:  { label: '缺勤', cls: 's-absent' },
