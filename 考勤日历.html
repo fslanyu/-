@@ -1032,6 +1032,20 @@ function calcPrevYearBalance(person) {
   return balance;
 }
 
+// 计算某人上一年年休假剩余天数（用于新年度结转建议）
+function calcPrevYearLeaveRemaining(person) {
+  const quotas = loadLeaveQuotas();
+  const q = quotas[person];
+  if (!q) return 0;
+  const alloc = q.allocation || q.total || 0;
+  const carry = q.carryover || 0;
+  const total = alloc + carry;
+  if (total === 0) return 0;
+  const prevYear = q.year || (currentYear - 1);
+  const used = calcAnnualLeaveUsed(person, prevYear);
+  return Math.max(0, total - used);
+}
+
 // ── 年休假额度管理 ──
 const STORAGE_LEAVE_QUOTAS = 'attendance_leave_quotas';
 
@@ -1590,6 +1604,13 @@ function showLeaveQuotaManager() {
   if (!isAdmin) return;
   const people = loadPeople();
   const quotas = loadLeaveQuotas();
+  // 1月自动计算上年剩余作为结转建议
+  const isNewYear = currentMonth === 1;
+  const prevYear = currentYear - 1;
+  const title = isNewYear ? `🏖 管理年休假额度（${prevYear}年剩余转${currentYear}年）` : '🏖 管理年休假额度';
+  const hint = isNewYear
+    ? `${prevYear}年剩余 = 总额 − 已休。已自动计算并预填到"结转"，确认后保存。`
+    : '' + hint + '';
   const overlay = document.createElement('div');
   overlay.className = 'sheet-overlay';
   overlay.id = 'quotaManagerOverlay';
@@ -1597,7 +1618,13 @@ function showLeaveQuotaManager() {
   let rowsHtml = '';
   for (var i = 0; i < people.length; i++) { var p = people[i];
     const q = quotas[p] || {};
-    const carry = q.carryover || '';
+    let carry = q.carryover;
+    // 新年度且未设置结转 → 自动计算上年剩余
+    if (isNewYear && (carry === undefined || carry === null || carry === 0 || carry === '')) {
+      const rem = calcPrevYearLeaveRemaining(p);
+      if (rem > 0) carry = rem;
+    }
+    carry = carry || '';
     const alloc = q.allocation || q.total || '';
     const year = q.year || currentYear;
     rowsHtml += '<div style="display:flex;align-items:center;gap:6px;padding:8px 0;border-bottom:1px solid #f0f0f0;">' +
@@ -1611,7 +1638,7 @@ function showLeaveQuotaManager() {
   }
   overlay.innerHTML = '<div class="sheet" style="max-height:80vh;overflow-y:auto;"><div class="sheet-handle"></div>' +
     '<h3>🏖 管理年休假额度</h3>' +
-    '<p style="font-size:12px;color:#888;margin-bottom:8px;">上年结转 + 当年额度 = 年休假总额</p>' +
+    '<p style="font-size:12px;color:#888;margin-bottom:8px;">' + hint + '</p>' +
     rowsHtml +
     '<div class="sheet-btns" style="margin-top:12px;">' +
     '<button class="btn-cancel" onclick="closeQuotaManager()">取消</button>' +
