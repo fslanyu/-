@@ -1019,6 +1019,19 @@ function calcOvertimeBalance(person, ymStr) {
   return { carried, overtime: cur.overtime, present: cur.present, balance: carried + cur.overtime - cur.present };
 }
 
+// 计算某人上一年的超时净余额（用于新年度结转建议）
+function calcPrevYearBalance(person) {
+  const carryover = loadOvertimeCarryover();
+  let balance = carryover[person] || 0;
+  const prevYear = currentYear - 1;
+  for (let m = 1; m <= 12; m++) {
+    const ym = prevYear + '-' + String(m).padStart(2, '0');
+    const ot = calcMonthOT(person, ym);
+    balance += ot.overtime - ot.present;
+  }
+  return balance;
+}
+
 // ── 年休假额度管理 ──
 const STORAGE_LEAVE_QUOTAS = 'attendance_leave_quotas';
 
@@ -1632,6 +1645,13 @@ function showOvertimeManager() {
   if (!isAdmin) return;
   const people = loadPeople();
   const carryover = loadOvertimeCarryover();
+  // 1~6月显示上年余额建议，7~12月显示初始结转
+  const isNewYear = currentMonth <= 6;
+  const prevYear = currentYear - 1;
+  const title = isNewYear ? `⏱ 管理超时结转（${prevYear}年余额转${currentYear}年）` : '⏱ 管理超时结转（初始结转）';
+  const hint = isNewYear
+    ? `${prevYear}年净余额 = 初始结转 + ${prevYear}年超时 − ${prevYear}年补休。已自动计算并预填，确认后保存。`
+    : '设置每人的初始结转余额（小时）。当前余额 = 结转 + 超时 − 补休';
   const overlay = document.createElement('div');
   overlay.className = 'sheet-overlay';
   overlay.id = 'otManagerOverlay';
@@ -1639,15 +1659,20 @@ function showOvertimeManager() {
   let rowsHtml = '';
   for (let i = 0; i < people.length; i++) {
     const p = people[i];
-    const val = carryover[p] !== undefined ? carryover[p] : '';
+    let val = carryover[p] !== undefined ? carryover[p] : '';
+    // 新年度且未设置结转 → 自动计算上年余额作为建议值
+    if (isNewYear && (val === '' || val === 0)) {
+      const prevBal = calcPrevYearBalance(p);
+      if (prevBal !== 0) val = prevBal;
+    }
     rowsHtml += '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #f0f0f0;">' +
       '<span style="min-width:60px;font-weight:600;">' + p + '</span>' +
       '<input id="ot_' + i + '" type="number" step="0.5" value="' + val + '" placeholder="结转(h)" style="width:80px;padding:6px;border:1px solid #ddd;border-radius:6px;font-size:14px;">' +
       '<span style="font-size:12px;color:#888;">h</span></div>';
   }
   overlay.innerHTML = '<div class="sheet" style="max-height:80vh;overflow-y:auto;"><div class="sheet-handle"></div>' +
-    '<h3>⏱ 管理超时结转（6月剩余）</h3>' +
-    '<p style="font-size:12px;color:#888;margin-bottom:8px;">设置每人从6月结转的超时余额（小时）。当前余额 = 结转 + 7月超时 − 7月补休</p>' +
+    '<h3>' + title + '</h3>' +
+    '<p style="font-size:12px;color:#888;margin-bottom:8px;">' + hint + '</p>' +
     rowsHtml +
     '<div class="sheet-btns" style="margin-top:12px;">' +
     '<button class="btn-cancel" onclick="closeOTManager()">取消</button>' +
