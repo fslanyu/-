@@ -1645,8 +1645,8 @@ function showOvertimeManager() {
   if (!isAdmin) return;
   const people = loadPeople();
   const carryover = loadOvertimeCarryover();
-  // 1~6月显示上年余额建议，7~12月显示初始结转
-  const isNewYear = currentMonth <= 6;
+  // 1月自动计算上年余额建议
+  const isNewYear = currentMonth === 1;
   const prevYear = currentYear - 1;
   const title = isNewYear ? `⏱ 管理超时结转（${prevYear}年余额转${currentYear}年）` : '⏱ 管理超时结转（初始结转）';
   const hint = isNewYear
