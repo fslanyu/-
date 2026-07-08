@@ -618,22 +618,34 @@ if (_SB) {
       const enc = encodeURIComponent;
       for (const [dk, sd] of Object.entries(data)) {
         (async () => {
-          try {
-            const m = `person=eq.${enc(person)}&year_month=eq.${ym}&day_key=eq.${enc(dk)}`;
-            const ex = await _sGET(`attendance?select=id&${m}`);
-            ex.length ? await _sPATCH('attendance', `id=eq.${ex[0].id}`, {status_data: sd})
-                      : await _sPOST('attendance', {person, year_month: ym, day_key: dk, status_data: sd});
-          } catch(e) { console.error(e); }
+          for (let retry = 0; retry < 3; retry++) {
+            try {
+              const m = `person=eq.${enc(person)}&year_month=eq.${ym}&day_key=eq.${enc(dk)}`;
+              const ex = await _sGET(`attendance?select=id&${m}`);
+              ex.length ? await _sPATCH('attendance', `id=eq.${ex[0].id}`, {status_data: sd})
+                        : await _sPOST('attendance', {person, year_month: ym, day_key: dk, status_data: sd});
+              break; // 成功
+            } catch(e) {
+              console.error('saveData retry ' + (retry+1) + ':', e);
+              if (retry < 2) await _sleep(1000 * (retry + 1));
+            }
+          }
         })();
       }
       // DELETE keys removed from data (e.g. admin clears a day, employee deletes within 3-day window)
       for (const dk of Object.keys(oldData)) {
         if (!(dk in data)) {
           (async () => {
-            try {
-              const m = `person=eq.${enc(person)}&year_month=eq.${ym}&day_key=eq.${enc(dk)}`;
-              await _sDELETE('attendance', m);
-            } catch(e) { console.error(e); }
+            for (let retry = 0; retry < 3; retry++) {
+              try {
+                const m = `person=eq.${enc(person)}&year_month=eq.${ym}&day_key=eq.${enc(dk)}`;
+                await _sDELETE('attendance', m);
+                break;
+              } catch(e) {
+                console.error('saveData DELETE retry ' + (retry+1) + ':', e);
+                if (retry < 2) await _sleep(1000 * (retry + 1));
+              }
+            }
           })();
         }
       }
@@ -818,20 +830,31 @@ if (_SB) {
         render();
       }
 
-      // 加载当前月份云端数据
+      // 加载当前月份云端数据（与 localStorage 合并，云端优先，保留本地独有）
       setTimeout(async () => {
         if (currentPerson && currentYear && currentMonth) {
           const ym = currentYear + '-' + String(currentMonth).padStart(2,'0'), enc = encodeURIComponent;
+          const lsKey = 'att_' + currentPerson + '_' + ym;
           try {
             const rows = await _sGET(`attendance?select=day_key,status_data&person=eq.${enc(currentPerson)}&year_month=eq.${ym}`);
             const d = {}; for (const r of rows) d[r.day_key] = r.status_data;
-            _C.dataCache[`${currentPerson}|${ym}`] = d;
+            // ★ 合并：云端数据优先，但保留 localStorage 独有的条目
+            let localData = {};
+            try { localData = JSON.parse(localStorage.getItem(lsKey) || '{}'); } catch(e) {}
+            const merged = {...localData, ...d};  // cloud wins
+            if (Object.keys(d).length > 0) localStorage.setItem(lsKey, JSON.stringify(merged));
+            _C.dataCache[`${currentPerson}|${ym}`] = merged;
             render();
           } catch(e) {}
           try {
             const nr = await _sGET(`notes?select=day_key,note&person=eq.${enc(currentPerson)}&year_month=eq.${ym}`);
             const nd = {}; for (const r of nr) nd[r.day_key] = r.note;
-            _C.noteCache[`${currentPerson}|${ym}`] = nd;
+            const lsNoteKey = 'att_note_' + currentPerson + '_' + ym;
+            let localNotes = {};
+            try { localNotes = JSON.parse(localStorage.getItem(lsNoteKey) || '{}'); } catch(e) {}
+            const mergedNotes = {...localNotes, ...nd};
+            if (Object.keys(nd).length > 0) localStorage.setItem(lsNoteKey, JSON.stringify(mergedNotes));
+            _C.noteCache[`${currentPerson}|${ym}`] = mergedNotes;
             render();
           } catch(e) {}
         }
@@ -849,7 +872,15 @@ if (_SB) {
             const rows = await _sGET(`attendance?select=day_key,status_data&person=eq.${enc(p)}&year_month=eq.${ym}`);
             const nd = {}; for (const r of rows) nd[r.day_key] = r.status_data;
             const ck = `${p}|${ym}`;
-            if (JSON.stringify(nd) !== JSON.stringify(_C.dataCache[ck] || {})) { _C.dataCache[ck] = nd; changed = true; }
+            // ★ 合并：云端优先，保留本地独有
+            let localData = {};
+            try { localData = JSON.parse(localStorage.getItem('att_' + p + '_' + ym) || '{}'); } catch(e) {}
+            const merged = {...localData, ...nd};
+            if (JSON.stringify(merged) !== JSON.stringify(_C.dataCache[ck] || {})) {
+              _C.dataCache[ck] = merged;
+              if (Object.keys(merged).length > 0) localStorage.setItem('att_' + p + '_' + ym, JSON.stringify(merged));
+              changed = true;
+            }
             pollOk = true;
           } catch(e) {}
         }
@@ -1610,7 +1641,7 @@ function showLeaveQuotaManager() {
   const title = isNewYear ? `🏖 管理年休假额度（${prevYear}年剩余转${currentYear}年）` : '🏖 管理年休假额度';
   const hint = isNewYear
     ? `${prevYear}年剩余 = 总额 − 已休。已自动计算并预填到"结转"，确认后保存。`
-    : '' + hint + '';
+    : '';
   const overlay = document.createElement('div');
   overlay.className = 'sheet-overlay';
   overlay.id = 'quotaManagerOverlay';
@@ -3179,8 +3210,8 @@ function renderStats() {
         if (status && c.hasOwnProperty(status)) {
           c[status]++;
           if (status === 'present') {
-            if (!hours || hours === '全天') presentTotalH += 8;
-            else if (hours === '半天') presentTotalH += 4;
+            if (!hours || hours === '全天') presentTotalH += 7;
+            else if (hours === '半天') presentTotalH += 3.5;
             else presentTotalH += parseFloat(hours);
           }
           if (status === 'trip' && hours) {
@@ -3321,8 +3352,8 @@ function calcSummary(person, ym) {
     for (const s of statuses) {
       const { status, hours, subtype } = s;
       if (status === 'present') {
-        if (!hours || hours === '全天') presentH += 8;
-        else if (hours === '半天') presentH += 4;
+        if (!hours || hours === '全天') presentH += 7;
+        else if (hours === '半天') presentH += 3.5;
         else presentH += parseFloat(hours);
       }
       if (status === 'leave') {
