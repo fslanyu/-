@@ -783,6 +783,30 @@ if (_SB) {
       })().catch(e => console.error(e));
     };
 
+    // ── 年休假额度同步 ──
+    const orig_loadLQ = loadLeaveQuotas;
+    const orig_saveLQ = saveLeaveQuotas;
+    loadLeaveQuotas = function() {
+      try {
+        const cloud = JSON.parse(_C.configMap['leave_quotas'] || '{}');
+        if (Object.keys(cloud).length > 0) return cloud;
+        return orig_loadLQ();
+      } catch { return orig_loadLQ(); }
+    };
+    saveLeaveQuotas = function(data) {
+      _C.configMap['leave_quotas'] = JSON.stringify(data);
+      orig_saveLQ(data); // localStorage 兜底
+      (async () => {
+        const v = JSON.stringify(data);
+        const m = 'key=eq.leave_quotas';
+        try {
+          const ex = await _sGET(`config?select=id&${m}`);
+          ex.length ? await _sPATCH('config', `id=eq.${ex[0].id}`, {value: v})
+                    : await _sPOST('config', {key: 'leave_quotas', value: v});
+        } catch(e) { console.error('年休假额度同步失败', e); }
+      })().catch(e => console.error(e));
+    };
+
     // 将云端人员列表同步到 localStorage（离线时备用）
     if (_C.people && _C.people.length) {
       orig_savePeople([..._C.people]);
@@ -795,20 +819,22 @@ if (_SB) {
   setTimeout(() => {
     const _orig_init = init;
     init = async function() {
-      // ★ 先立即渲染（0 秒），不等待 Supabase
-      // 用户立刻看到界面，不会觉得"没反应"
+      // ★ 保存原始 localStorage savePeople（在 _injectOverrides 替换之前）
+      const _orig_savePeople_ls = savePeople;
+
+      // ★ 先安装 Supabase 覆盖（确保用户从一开始就在 Supabase 上操作）
+      // _injectOverrides 内置 localStorage 兜底，所以安装后立即生效、零风险
+      _injectOverrides();
+
+      // ★ 然后渲染界面（用户立刻看到内容，且此时 saveData/loadData 已指向 Supabase）
       _orig_init();
 
-      // 后台加载 Supabase 数据（用户已经在用页面了，不阻塞）
-      const _orig_savePeople_ls = savePeople; // 保存原始 localStorage 版，后面同步人员列表用
+      // 后台加载 Supabase 云端数据（人员列表/pin/配置）
       let loaded = false;
       for (let i = 0; i < 3; i++) {
         try { await _loadAll(1); loaded = true; break; }
         catch(e) { console.error('Supabase load retry '+(i+1)+':', e); if (i < 2) await _sleep(1500*(i+1)); }
       }
-
-      // 安装 Supabase 覆盖（后续写入会同步到云端）
-      _injectOverrides();
       let degraded = !_C.people || !_C.people.length;
 
       if (loaded && !degraded) {
