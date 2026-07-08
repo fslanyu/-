@@ -708,8 +708,8 @@ if (_SB) {
     setPassword = function(newPwd) {
       _C.configMap['admin_password'] = newPwd;
       (async () => {
-        const m = 'key=eq.admin_password', ex = await _sGET(`config?select=id&${m}`);
-        ex.length ? await _sPATCH('config', `id=eq.${ex[0].id}`, {value: newPwd})
+        const m = 'key=eq.admin_password'; const ex = await _sGET(`config?select=key&${m}`);
+        ex.length ? await _sPATCH('config', `key=eq.admin_password`, {value: newPwd})
                   : await _sPOST('config', {key: 'admin_password', value: newPwd});
       })().catch(e => console.error(e));
     };
@@ -721,8 +721,8 @@ if (_SB) {
     saveAdminUsers = function(users) {
       _C.configMap['admin_users'] = JSON.stringify(users);
       (async () => {
-        const m = 'key=eq.admin_users', v = JSON.stringify(users), ex = await _sGET(`config?select=id&${m}`);
-        ex.length ? await _sPATCH('config', `id=eq.${ex[0].id}`, {value: v})
+        const m = 'key=eq.admin_users'; const v = JSON.stringify(users); const ex = await _sGET(`config?select=key&${m}`);
+        ex.length ? await _sPATCH('config', `key=eq.admin_users`, {value: v})
                   : await _sPOST('config', {key: 'admin_users', value: v});
       })().catch(e => console.error(e));
     };
@@ -751,8 +751,8 @@ if (_SB) {
         const v = JSON.stringify(ids);
         const m = 'key=eq.employee_ids';
         try {
-          const ex = await _sGET(`config?select=id&${m}`);
-          ex.length ? await _sPATCH('config', `id=eq.${ex[0].id}`, {value: v})
+          const ex = await _sGET(`config?select=key&${m}`);
+          ex.length ? await _sPATCH('config', `key=eq.employee_ids`, {value: v})
                     : await _sPOST('config', {key: 'employee_ids', value: v});
         } catch(e) { console.error('工号同步失败', e); }
       })().catch(e => console.error(e));
@@ -776,8 +776,8 @@ if (_SB) {
         const v = JSON.stringify(data);
         const m = 'key=eq.overtime_carryover';
         try {
-          const ex = await _sGET(`config?select=id&${m}`);
-          ex.length ? await _sPATCH('config', `id=eq.${ex[0].id}`, {value: v})
+          const ex = await _sGET(`config?select=key&${m}`);
+          ex.length ? await _sPATCH('config', `key=eq.overtime_carryover`, {value: v})
                     : await _sPOST('config', {key: 'overtime_carryover', value: v});
         } catch(e) { console.error('超时结转同步失败', e); }
       })().catch(e => console.error(e));
@@ -800,8 +800,8 @@ if (_SB) {
         const v = JSON.stringify(data);
         const m = 'key=eq.leave_quotas';
         try {
-          const ex = await _sGET(`config?select=id&${m}`);
-          ex.length ? await _sPATCH('config', `id=eq.${ex[0].id}`, {value: v})
+          const ex = await _sGET(`config?select=key&${m}`);
+          ex.length ? await _sPATCH('config', `key=eq.leave_quotas`, {value: v})
                     : await _sPOST('config', {key: 'leave_quotas', value: v});
         } catch(e) { console.error('年休假额度同步失败', e); }
       })().catch(e => console.error(e));
