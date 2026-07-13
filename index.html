@@ -3370,6 +3370,7 @@ function calcSummary(person, ym) {
   let overtimeDayDays = 0, overtimeDayHalf = 0;
   let manualSheets = 0, manualDoses = 0, shiftCount = 0;
   let dischargeCount = 0, prepMedCount = 0;
+  let tripHours = 0;
   let shiftCounts = {早班:0, 晚班:0, 出院班:0, 直落:0};
   for (const [_, v] of Object.entries(data)) {
     const statuses = parseStatuses(v);
@@ -3387,6 +3388,7 @@ function calcSummary(person, ym) {
         if (hours === '半天') leaveHalf++;
       }
       if (status === 'overtime') overtimeH += parseFloat(hours);
+      if (status === 'trip' && hours) tripHours += parseFloat(hours);
       if (status === 'overtime_day') {
         overtimeDayDays++;
         if (hours === '半天') overtimeDayHalf++;
@@ -3410,7 +3412,7 @@ function calcSummary(person, ym) {
   return {
     count, presentH,
     leaveDays: leaveDays - leaveHalf * 0.5,
-    overtimeH,
+    overtimeH, tripHours,
     overtimeDayDays: overtimeDayDays - overtimeDayHalf * 0.5,
     manualSheets, manualDoses, shiftCount, shiftCounts,
     dischargeCount, prepMedCount,
@@ -3441,6 +3443,7 @@ function exportCSV() {
   csv += `休超时假总时长,,${s.presentH}h,\n`;
   csv += `年休假总天数,,${s.leaveDays}天,\n`;
   csv += `超时总时长,,${s.overtimeH}h,\n`;
+  csv += `公差总时长,,${s.tripHours||0}h,\n`;
   csv += `加班总天数,,${s.overtimeDayDays}天,\n`;
   csv += `手工单总张数,,${s.manualSheets||0}张,\n`;
   csv += `手工单总剂数,,${s.manualDoses||0}剂,\n`;
@@ -3565,6 +3568,7 @@ function exportExcel() {
   allRows.push(['休超时假总时长', 'h', s.presentH, '']);
   allRows.push(['年休假总天数', '天', s.leaveDays, '']);
   allRows.push(['超时总时长', 'h', s.overtimeH, '']);
+  allRows.push(['公差总时长', 'h', s.tripHours||0, '']);
   allRows.push(['加班总天数', '天', s.overtimeDayDays, '']);
   allRows.push(['手工单总张数', '张', s.manualSheets||0, '']);
   allRows.push(['手工单总剂数', '剂', s.manualDoses||0, '']);
@@ -3610,7 +3614,7 @@ function exportAllExcel() {
     const dow = new Date(currentYear, currentMonth - 1, d).getDay();
     header.push(`${currentMonth}/${d} 星期${weekNames[dow]}`);
   }
-  header.push('休超时假(h)', '年休假(天)', '超时(h)', '加班(天)',
+  header.push('休超时假(h)', '年休假(天)', '超时(h)', '公差(h)', '加班(天)',
     '手工单(张)', '手工单(剂)', '发出院(个)', '挑药(剂)',
     '班次(次)', '早班', '晚班', '出院班', '直落', '总剂数', '总条目数',
     '超时余额(h)', '年休假余额(天)');
@@ -3626,7 +3630,7 @@ function exportAllExcel() {
       row.push(data[key] ? getDisplayLabel(data[key]) : '');
     }
     const s = calcSummary(p, ym());
-    row.push(s.presentH, s.leaveDays, s.overtimeH, s.overtimeDayDays,
+    row.push(s.presentH, s.leaveDays, s.overtimeH, s.tripHours||0, s.overtimeDayDays,
       s.manualSheets||0, s.manualDoses||0, s.dischargeCount||0, s.prepMedCount||0,
       s.shiftCount||0, s.shiftCounts.早班||0, s.shiftCounts.晚班||0,
       s.shiftCounts.出院班||0, s.shiftCounts.直落||0,
@@ -3642,11 +3646,11 @@ function exportAllExcel() {
   // Column widths
   const colWidths = [{wch: 8}, {wch: 6}];
   for (let d = 1; d <= daysInMonth; d++) colWidths.push({wch: 8});
-  for (let i = 0; i < 15; i++) colWidths.push({wch: 10});
+  for (let i = 0; i < 16; i++) colWidths.push({wch: 10});
   ws['!cols'] = colWidths;
 
   // Merge title row
-  const totalCols = 2 + daysInMonth + 17;
+  const totalCols = 2 + daysInMonth + 18;
   ws['!merges'] = [{s: {r: 0, c: 0}, e: {r: 0, c: totalCols - 1}}];
 
   XLSX.utils.book_append_sheet(wb, ws, '全员考勤');
