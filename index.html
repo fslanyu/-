@@ -3285,7 +3285,7 @@ function renderStats() {
       <div class="stat-item">缺勤 <b>${c.absent}</b></div>
       <div class="stat-item">迟到 <b>${c.late}</b></div>
       <div class="stat-item">年休假 <b>${c.leave}</b>天${leaveHalf > 0 ? ` (含${leaveHalf}个半天)` : ''}</div>
-      <div class="stat-item">公差 <b>${c.trip}</b>天${tripHours > 0 ? ` (${tripHours}h)` : ''}</div>
+      <div class="stat-item">公差 <b>${tripHours}</b>h</div>
       <div class="stat-item">超时 <b>${overtimeHours}</b>h</div>
       <div class="stat-item">加班 <b>${c.overtime_day}</b>天${overtimeDayHalf > 0 ? ` (含${overtimeDayHalf}个半天)` : ''}</div>
       ${manualSheets > 0 || manualDoses > 0 ? `<div class="stat-item">手工单 <b>${manualSheets}</b>张${manualDoses > 0 ? ` <b>${manualDoses}</b>剂` : ''}</div>` : `<div class="stat-item">手工单 <b>0</b>张</div>`}
