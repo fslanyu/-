@@ -1146,12 +1146,9 @@ function getPersonLeaveQuota(person) {
   const alloc = q.allocation || q.total || 0; // 兼容旧数据（旧版只有 total）
   let carry = q.carryover || 0;
   const prevAlloc = q.prevAllocation;
-  // 结转封顶：4月1日起，结转不得大于上年维护的年休假天数，超出部分作废
-  if (prevAlloc !== undefined && carry > prevAlloc) {
-    // 当年4月及之后 → 封顶；1~3月允许先用着
-    if (!q.year || q.year < currentYear || currentMonth >= 4) {
-      carry = prevAlloc;
-    }
+  // 4月1日起：结转超过上年维护的额度，直接作废
+  if (prevAlloc !== undefined && carry > prevAlloc && currentMonth >= 4) {
+    carry = prevAlloc;
   }
   const total = alloc + carry;
   if (total === 0) return { allocation: 0, carryover: 0, total: 0, used: 0, remaining: 0, hasQuota: false };
@@ -1683,10 +1680,8 @@ function showLeaveQuotaManager() {
   const prevYear = currentYear - 1;
   const title = isNewYear ? `🏖 管理年休假额度（${prevYear}年剩余转${currentYear}年）` : '🏖 管理年休假额度';
   const hint = isNewYear
-    ? `${prevYear}年剩余 = 总额 − 已休。已自动预填到"结转"。4月起设定额度时自动封顶至上年额度。`
-    : (currentMonth >= 4
-      ? '4月起，结转超过上年额度时自动封顶作废。'
-      : '结转超过上年额度将 ⚠标红，4月起保存时自动封顶。');
+    ? `${prevYear}年剩余 = 总额 − 已休。已自动预填到"结转"。4月1日结转超限直接作废。`
+    : '4月1日起，结转超过上年额度直接作废。';
   const overlay = document.createElement('div');
   overlay.className = 'sheet-overlay';
   overlay.id = 'quotaManagerOverlay';
