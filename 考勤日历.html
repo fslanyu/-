@@ -1144,7 +1144,12 @@ function getPersonLeaveQuota(person) {
   const q = quotas[person];
   if (!q) return { allocation: 0, carryover: 0, total: 0, used: 0, remaining: 0, hasQuota: false };
   const alloc = q.allocation || q.total || 0; // 兼容旧数据（旧版只有 total）
-  const carry = q.carryover || 0;
+  let carry = q.carryover || 0;
+  const prevAlloc = q.prevAllocation;
+  // 结转封顶：不得大于上年维护的年休假天数（至次年3月底有效）
+  if (prevAlloc !== undefined && carry > prevAlloc) {
+    carry = prevAlloc;
+  }
   const total = alloc + carry;
   if (total === 0) return { allocation: 0, carryover: 0, total: 0, used: 0, remaining: 0, hasQuota: false };
   const year = q.year || currentYear;
@@ -1685,22 +1690,34 @@ function showLeaveQuotaManager() {
   for (var i = 0; i < people.length; i++) { var p = people[i];
     const q = quotas[p] || {};
     let carry = q.carryover;
-    // 新年度且未设置结转 → 自动计算上年剩余
+    const alloc = q.allocation || q.total || '';
+    const prevAlloc = q.prevAllocation;
+    // 新年度且未设置结转 → 自动计算上年剩余，并以上年额度封顶
     if (isNewYear && (carry === undefined || carry === null || carry === 0 || carry === '')) {
       const rem = calcPrevYearLeaveRemaining(p);
       if (rem > 0) carry = rem;
+      // 结转不得超过上年维护的年休假天数
+      if (prevAlloc !== undefined && Number(carry) > Number(prevAlloc)) {
+        carry = prevAlloc;
+      }
     }
     carry = carry || '';
-    const alloc = q.allocation || q.total || '';
     const year = q.year || currentYear;
-    rowsHtml += '<div style="display:flex;align-items:center;gap:6px;padding:8px 0;border-bottom:1px solid #f0f0f0;">' +
+    // 结转超过上年额度时标红警告
+    const carryOver = (prevAlloc !== undefined && Number(carry) > Number(prevAlloc));
+    const carryStyle = carryOver ? 'border:1px solid #d14343 !important;background:#fff5f5;' : '';
+    rowsHtml += '<div style="display:flex;align-items:center;gap:6px;padding:8px 0;border-bottom:1px solid #f0f0f0;flex-wrap:wrap;">' +
       '<span style="min-width:60px;font-weight:600;font-size:14px;">' + p + '</span>' +
       '<span style="font-size:11px;color:#888;">结转</span>' +
-      '<input id="quota_carry_' + i + '" type="number" min="0" max="30" step="0.5" value="' + carry + '" placeholder="0" style="width:50px;padding:6px;border:1px solid #ddd;border-radius:6px;font-size:13px;text-align:center;">' +
+      '<input id="quota_carry_' + i + '" type="number" min="0" max="30" step="0.5" value="' + carry + '" placeholder="0" style="width:50px;padding:6px;border-radius:6px;font-size:13px;text-align:center;' + carryStyle + '">' +
       '<span style="font-size:13px;">+</span>' +
       '<span style="font-size:11px;color:#888;">额度</span>' +
       '<input id="quota_alloc_' + i + '" type="number" min="0" max="30" step="0.5" value="' + alloc + '" placeholder="0" style="width:50px;padding:6px;border:1px solid #ddd;border-radius:6px;font-size:13px;text-align:center;">' +
-      '<span style="font-size:11px;color:#888;">天 (' + year + ')</span></div>';
+      '<span style="font-size:11px;color:#888;">天 (' + year + ')</span>' +
+      (prevAlloc !== undefined
+        ? '<span style="font-size:10px;color:' + (carryOver ? '#d14343' : '#888') + ';">上年额度 ' + prevAlloc + '天' + (carryOver ? ' ⚠超限' : '') + '</span>'
+        : '') +
+      '</div>';
   }
   overlay.innerHTML = '<div class="sheet" style="max-height:80vh;overflow-y:auto;"><div class="sheet-handle"></div>' +
     '<h3>🏖 管理年休假额度</h3>' +
@@ -1714,6 +1731,7 @@ function showLeaveQuotaManager() {
 
 function saveQuotaManager() {
   const people = loadPeople();
+  const oldQuotas = loadLeaveQuotas();
   const quotas = {};
   for (var i = 0; i < people.length; i++) { var p = people[i];
     const carryEl = document.getElementById('quota_carry_' + i);
@@ -1721,7 +1739,15 @@ function saveQuotaManager() {
     const carry = parseFloat(carryEl?.value) || 0;
     const alloc = parseFloat(allocEl?.value) || 0;
     if (carry > 0 || alloc > 0) {
-      quotas[p] = { carryover: carry, allocation: alloc, year: currentYear };
+      const old = oldQuotas[p] || {};
+      // 上年额度：跨年时从旧数据取，同一年保持不变
+      let prevAlloc = alloc;
+      if (old.year && old.year < currentYear) {
+        prevAlloc = old.allocation || old.total || alloc;
+      } else if (old.prevAllocation !== undefined) {
+        prevAlloc = old.prevAllocation;
+      }
+      quotas[p] = { carryover: carry, allocation: alloc, year: currentYear, prevAllocation: prevAlloc };
     }
   }
   saveLeaveQuotas(quotas);
