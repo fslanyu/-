@@ -1683,8 +1683,10 @@ function showLeaveQuotaManager() {
   const prevYear = currentYear - 1;
   const title = isNewYear ? `🏖 管理年休假额度（${prevYear}年剩余转${currentYear}年）` : '🏖 管理年休假额度';
   const hint = isNewYear
-    ? `${prevYear}年剩余 = 总额 − 已休。已自动预填到"结转"。结转>上年额度时，4月1日自动封顶作废。`
-    : '结转不得超过上年维护的额度，4月1日起超出部分自动作废。';
+    ? `${prevYear}年剩余 = 总额 − 已休。已自动预填到"结转"。4月起设定额度时自动封顶至上年额度。`
+    : (currentMonth >= 4
+      ? '4月起，结转超过上年额度时自动封顶作废。'
+      : '结转超过上年额度将 ⚠标红，4月起保存时自动封顶。');
   const overlay = document.createElement('div');
   overlay.className = 'sheet-overlay';
   overlay.id = 'quotaManagerOverlay';
@@ -1746,7 +1748,12 @@ function saveQuotaManager() {
       } else if (old.prevAllocation !== undefined) {
         prevAlloc = old.prevAllocation;
       }
-      quotas[p] = { carryover: carry, allocation: alloc, year: currentYear, prevAllocation: prevAlloc };
+      // 4月及之后设定额度：结转自动封顶至上年额度，超出作废
+      let finalCarry = carry;
+      if (currentMonth >= 4 && prevAlloc !== undefined && carry > prevAlloc) {
+        finalCarry = prevAlloc;
+      }
+      quotas[p] = { carryover: finalCarry, allocation: alloc, year: currentYear, prevAllocation: prevAlloc };
     }
   }
   saveLeaveQuotas(quotas);
