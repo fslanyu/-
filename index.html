@@ -963,6 +963,7 @@ const STATUS_ORDER = ['present','absent','late','leave','trip','overtime','overt
 const PRESENT_HOURS = ['半天', '全天', '0.5', '1', '1.5', '2', '2.5', '3', '3.5', '4', '4.5', '5', '5.5', '6', '6.5', '7'];
 const TRIP_HOURS = ['0.5', '1', '1.5', '2', '2.5', '3', '3.5', '4', '4.5', '5', '5.5', '6', '6.5', '7'];
 const LEAVE_HOURS = ['半天', '全天'];
+const ANNUAL_LEAVE_HOURS = ['半天4h', '半天3h', '全天']; // 年休假专用：半天4h+半天3h=全天7h
 const LEAVE_SUBTYPES = ['年休假', '婚假', '陪产假', '工伤假', '丧假', '育儿假', '护理假'];
 const OVERTIME_DAY_HOURS = ['半天', '全天'];
 // 超时时长（0.5-4，含小数）
@@ -1058,18 +1059,19 @@ function calcMonthOT(person, ymStr) {
   return { overtime: overtimeH, present: presentH };
 }
 
-// 计某人当月超时余额：自动累加过去月份 + 本月
+// 计算某人当月超时余额：上月结转 + 本月超时 - 本月补休
+// 上月的超时只在本月有效，本月结束后未休完的过期
 function calcOvertimeBalance(person, ymStr) {
   const carryover = loadOvertimeCarryover();
-  let carried = carryover[person] || 0; // 管理员设定的初始结转（6月及之前）
+  let carried = carryover[person] || 0; // 管理员设定的初始结转
 
-  // 自动累加从7月到上个月的所有月份净额
+  // 只结转上个月的净额（超时 - 补休）—— 跨年也支持
   const [cy, cm] = ymStr.split('-').map(Number);
-  for (let m = 7; m < cm; m++) {
-    const ym = cy + '-' + String(m).padStart(2, '0');
-    const ot = calcMonthOT(person, ym);
-    carried += ot.overtime - ot.present;
-  }
+  let prevYear = cy, prevMonth = cm - 1;
+  if (prevMonth === 0) { prevYear = cy - 1; prevMonth = 12; }
+  const prevYM = prevYear + '-' + String(prevMonth).padStart(2, '0');
+  const prevOT = calcMonthOT(person, prevYM);
+  carried += prevOT.overtime - prevOT.present;
 
   // 本月数据
   const cur = calcMonthOT(person, ymStr);
@@ -1125,7 +1127,10 @@ function calcAnnualLeaveUsed(person, year) {
       const statuses = parseStatuses(v);
       for (const s of statuses) {
         if (s.status === 'leave' && (!s.subtype || s.subtype === '年休假')) {
-          used += (s.hours === '半天') ? 0.5 : 1;
+          if (s.hours === '半天4h') used += 4/7;
+          else if (s.hours === '半天3h') used += 3/7;
+          else if (s.hours === '半天') used += 0.5;
+          else used += 1;
         }
       }
     }
@@ -1255,6 +1260,8 @@ function getDisplayLabel(raw) {
     if (status === 'leave' && subtype) {
       if (hours && hours !== '全天') {
         if (hours === '半天') return subtype + ' 半天';
+        if (hours === '半天4h') return subtype + ' 半天4h';
+        if (hours === '半天3h') return subtype + ' 半天3h';
         return subtype + ' ' + hours + 'h';
       }
       return subtype;
@@ -1276,6 +1283,8 @@ function getDisplayLabel(raw) {
     }
     if (hours && hours !== '全天') {
       if (hours === '半天') return label + (status === 'present' ? ' 补休半天' : ' 半天');
+      if (hours === '半天4h') return label + ' 半天4h';
+      if (hours === '半天3h') return label + ' 半天3h';
       return label + ' ' + hours + 'h';
     }
     return label;
@@ -2102,7 +2111,7 @@ function showHourPicker(key, statusType, leaveSubtype) {
 
   let hoursList, title;
   if (statusType === 'trip') { hoursList = TRIP_HOURS; title = '公差时长'; }
-  else if (statusType === 'leave') { hoursList = LEAVE_HOURS; title = (leaveSubtype || '年休假') + ' 时长'; }
+  else if (statusType === 'leave') { hoursList = (leaveSubtype === '年休假' || !leaveSubtype) ? ANNUAL_LEAVE_HOURS : LEAVE_HOURS; title = (leaveSubtype || '年休假') + ' 时长'; }
   else if (statusType === 'overtime') { hoursList = OVERTIME_HOURS; title = '超时时长'; }
   else if (statusType === 'overtime_day') { hoursList = OVERTIME_DAY_HOURS; title = '加班时长'; }
   else { hoursList = PRESENT_HOURS; title = '休超时假时长'; }
@@ -2110,6 +2119,8 @@ function showHourPicker(key, statusType, leaveSubtype) {
   for (const h of hoursList) {
     let label;
     if (h === '半天') label = statusType === 'present' ? '补休半天' : '半天';
+    else if (h === '半天4h') label = '半天4h';
+    else if (h === '半天3h') label = '半天3h';
     else if (h === '全天') label = statusType === 'present' ? '补休全天' : '全天';
     else label = h + 'h';
     const clickArgs = leaveSubtype
@@ -2134,6 +2145,29 @@ function closeHourPicker() {
 
 function pickHours(key, hours, statusType, leaveSubtype) {
   closeHourPicker();
+
+  // 休超时假：检查余额，不允许超过 -2h
+  if (statusType === 'present') {
+    const hNum = hours === '全天' ? 7 : hours === '半天' ? 3.5 : parseFloat(hours);
+    const raw = ((loadData(currentPerson, ym()) || {})[key]) || null;
+    // 计算已有休超时假（替换场景：新值替换旧值，净增量为 delta）
+    let oldPresentH = 0;
+    if (raw) {
+      const existing = parseStatuses(raw);
+      for (const s of existing) {
+        if (s.status === 'present') {
+          oldPresentH = (!s.hours || s.hours === '全天') ? 7 : s.hours === '半天' ? 3.5 : parseFloat(s.hours);
+        }
+      }
+    }
+    const delta = hNum - oldPresentH;
+    const bal = calcOvertimeBalance(currentPerson, ym());
+    const projected = bal.balance - delta;
+    if (projected < -2) {
+      showToast(`⚠️ 超时余额不足（余额 ${bal.balance}h，需 ${hNum}h，将透支至 ${projected}h）。请改用年休假`, true);
+      return;
+    }
+  }
   const data = loadData(currentPerson, ym());
   const raw = data[key] || null;
   const result = appendStatus(raw, statusType, hours, leaveSubtype);
@@ -2151,6 +2185,8 @@ function pickHours(key, hours, statusType, leaveSubtype) {
   const name = leaveSubtype || STATUS[statusType].label;
   let label;
   if (hours === '半天') label = statusType === 'present' ? `${name} 补休半天` : `${name} 半天`;
+  else if (hours === '半天4h') label = `${name} 半天4h`;
+  else if (hours === '半天3h') label = `${name} 半天3h`;
   else if (hours === '全天') label = statusType === 'present' ? `${name} 补休全天` : `${name} 全天`;
   else label = `${name} ${hours}h`;
   showToast(`✅ 已登记：${label}`);
@@ -2204,13 +2240,11 @@ function confirmManualQty(key) {
   const sheets = parseInt(document.getElementById('manualQtySheets').value, 10);
   const doses = parseInt(document.getElementById('manualQtyDoses').value, 10);
   closeManualQtyPicker();
-  if (isNaN(sheets) || sheets < 0) { showToast('请输入有效张数', true); return; }
-  if (isNaN(doses) || doses < 0) { showToast('请输入有效剂数', true); return; }
-  if (sheets === 0 && doses === 0) { showToast('张数和剂数不能都为0', true); return; }
+  if (isNaN(sheets) || sheets <= 0) { showToast('请输入有效张数（必须大于0）', true); return; }
+  if (isNaN(doses) || doses <= 0) { showToast('请输入有效剂数（必须大于0）', true); return; }
   const data = loadData(currentPerson, ym());
   const raw = data[key] || null;
-  const doseStr = doses > 0 ? String(doses) : null;
-  const result = appendStatus(raw, 'manual', String(sheets), doseStr);
+  const result = appendStatus(raw, 'manual', String(sheets), String(doses));
   if (result === null) {
     showToast('⚠️ 该日期已有缺勤/加班/全天补休/年休假全天，不能再叠加其他状态', true);
     return;
@@ -2222,8 +2256,7 @@ function confirmManualQty(key) {
   data[key] = result;
   saveData(currentPerson, ym(), data);
   render();
-  const label = doses > 0 ? `手工单 ${sheets}张${doses}剂` : `手工单 ${sheets}张`;
-  showToast(`✅ 已登记：${label}`);
+  showToast(`✅ 已登记：手工单 ${sheets}张${doses}剂`);
 }
 
 // ── 发出院数量输入（个数）──
@@ -3146,15 +3179,17 @@ function showHourPickerForAdmin(key, statusType, currentHours, leaveSubtype) {
 
   let hoursList, title;
   if (statusType === 'trip') { hoursList = TRIP_HOURS; title = '修改公差时长'; }
-  else if (statusType === 'leave') { hoursList = LEAVE_HOURS; title = '修改' + (leaveSubtype || '年休假') + '时长'; }
+  else if (statusType === 'leave') { hoursList = (leaveSubtype === '年休假' || !leaveSubtype) ? ANNUAL_LEAVE_HOURS : LEAVE_HOURS; title = '修改' + (leaveSubtype || '年休假') + '时长'; }
   else if (statusType === 'overtime') { hoursList = OVERTIME_HOURS; title = '修改超时时长'; }
   else if (statusType === 'overtime_day') { hoursList = OVERTIME_DAY_HOURS; title = '修改加班时长'; }
   else { hoursList = PRESENT_HOURS; title = '修改休超时假时长'; }
-  const curLabel = currentHours === '半天' ? (statusType === 'present' ? '补休半天' : '半天') : currentHours === '全天' ? (statusType === 'present' ? '补休全天' : '全天') : currentHours + 'h';
+  const curLabel = currentHours === '半天' ? (statusType === 'present' ? '补休半天' : '半天') : currentHours === '半天4h' ? '半天4h' : currentHours === '半天3h' ? '半天3h' : currentHours === '全天' ? (statusType === 'present' ? '补休全天' : '全天') : currentHours + 'h';
   let btns = '';
   for (const h of hoursList) {
     let label;
     if (h === '半天') label = statusType === 'present' ? '补休半天' : '半天';
+    else if (h === '半天4h') label = '半天4h';
+    else if (h === '半天3h') label = '半天3h';
     else if (h === '全天') label = statusType === 'present' ? '补休全天' : '全天';
     else label = h + 'h';
     const activeStyle = h === currentHours ? 'background:#e6f7e6;font-weight:bold;' : '';
@@ -3243,7 +3278,7 @@ function renderStats() {
           if (status === 'trip' && hours) {
             tripHours += parseFloat(hours);
           }
-          if (status === 'leave' && hours === '半天') {
+          if (status === 'leave' && (hours === '半天' || hours === '半天4h' || hours === '半天3h')) {
             leaveHalf++;
           }
           if (status === 'overtime') {
@@ -3366,7 +3401,7 @@ function batchSet(status) {
 // ── 导出汇总计算 ──
 function calcSummary(person, ym) {
   const data = loadData(person, ym);
-  let count = 0, presentH = 0, leaveDays = 0, leaveHalf = 0, overtimeH = 0;
+  let count = 0, presentH = 0, leaveDays = 0, leaveHalf = 0, leaveHalf4h = 0, leaveHalf3h = 0, overtimeH = 0;
   let overtimeDayDays = 0, overtimeDayHalf = 0;
   let manualSheets = 0, manualDoses = 0, shiftCount = 0;
   let dischargeCount = 0, prepMedCount = 0;
@@ -3386,6 +3421,8 @@ function calcSummary(person, ym) {
       if (status === 'leave') {
         leaveDays++;
         if (hours === '半天') leaveHalf++;
+        else if (hours === '半天4h') leaveHalf4h++;
+        else if (hours === '半天3h') leaveHalf3h++;
       }
       if (status === 'overtime') overtimeH += parseFloat(hours);
       if (status === 'trip' && hours) tripHours += parseFloat(hours);
@@ -3411,7 +3448,7 @@ function calcSummary(person, ym) {
   }
   return {
     count, presentH,
-    leaveDays: leaveDays - leaveHalf * 0.5,
+    leaveDays: leaveDays - leaveHalf * 0.5 - leaveHalf4h * (3/7) - leaveHalf3h * (4/7),
     overtimeH, tripHours,
     overtimeDayDays: overtimeDayDays - overtimeDayHalf * 0.5,
     manualSheets, manualDoses, shiftCount, shiftCounts,
