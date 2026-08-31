@@ -1166,7 +1166,15 @@ function calcOvertimeBalance(person, ymStr) {
 }
 
 // ── 每日休超时假上限（防止扎堆休假造成无人上班）──
-const DAILY_PRESENT_LIMIT = 28; // 每天全员累计最多 28 小时超时假
+const DAILY_PRESENT_LIMIT = 28; // 默认每天全员累计最多 28 小时超时假
+const MONDAY_PRESENT_LIMIT = 21; // 周一上限（周一最忙，收紧到 21 小时）
+
+// 某天的超时假上限：周一 21h，其他天 28h
+function dailyPresentLimit(dayKey) {
+  const [y, m, d] = dayKey.split('-').map(Number);
+  const dow = new Date(y, m - 1, d).getDay(); // 0=周日 1=周一
+  return dow === 1 ? MONDAY_PRESENT_LIMIT : DAILY_PRESENT_LIMIT;
+}
 
 function presentHoursValue(hours) {
   if (!hours || hours === '全天') return 7;
@@ -1227,7 +1235,7 @@ function computeFullDaysLocal() {
   }
   const full = new Set();
   for (const [dayKey, total] of Object.entries(dailyTotal)) {
-    if (total >= DAILY_PRESENT_LIMIT) full.add(dayKey);
+    if (total >= dailyPresentLimit(dayKey)) full.add(dayKey);
   }
   return full;
 }
@@ -2358,12 +2366,14 @@ async function pickHours(key, hours, statusType, leaveSubtype) {
       return;
     }
 
-    // ★ 每日上限：当天全员休超时假累计不超过 21h（防止扎堆造成无人上班）
+    // ★ 每日上限：当天全员休超时假累计不超过上限（周一 21h，其他 28h）
+    const limit = dailyPresentLimit(key);
     const dailyTotal = await getDailyPresentTotal(key);
     const newDailyTotal = dailyTotal + delta;
-    if (newDailyTotal > DAILY_PRESENT_LIMIT) {
-      const remain = Math.max(0, DAILY_PRESENT_LIMIT - dailyTotal);
-      showToast(`⚠️ 当天休超时假已达上限（已休 ${dailyTotal}h，每日最多 ${DAILY_PRESENT_LIMIT}h${remain > 0 ? '，还可休 ' + remain + 'h' : ''}），无法再登记`, true);
+    if (newDailyTotal > limit) {
+      const remain = Math.max(0, limit - dailyTotal);
+      const limitLabel = limit === MONDAY_PRESENT_LIMIT ? '周一最多 ' + limit + 'h' : '每日最多 ' + limit + 'h';
+      showToast(`⚠️ 当天休超时假已达上限（已休 ${dailyTotal}h，${limitLabel}${remain > 0 ? '，还可休 ' + remain + 'h' : ''}），无法再登记`, true);
       return;
     }
   }
@@ -2740,7 +2750,7 @@ function render() {
       <div class="legend-item"><div class="legend-dot" style="background:#fce4ec;border:2px solid #c2185b;"></div>班次</div>
       <div class="legend-item"><div class="legend-dot" style="background:#e3f2fd;border:2px solid #1565c0;"></div>发出院</div>
       <div class="legend-item"><div class="legend-dot" style="background:#fff3e0;border:2px solid #e65100;"></div>挑药</div>
-      <div class="legend-item"><span class="full-mark" style="margin:0;">满</span>超时假已满(当天不能再休)</div>
+      <div class="legend-item"><span class="full-mark" style="margin:0;">满</span>超时假已满(周一21h/其他28h)</div>
     </div>
 
     <div class="stats" id="stats"></div>
