@@ -982,7 +982,7 @@ const TRIP_HOURS = ['0.5', '1', '1.5', '2', '2.5', '3', '3.5', '4', '4.5', '5', 
 const LEAVE_HOURS = ['半天4h', '半天3h', '全天'];
 const ANNUAL_LEAVE_HOURS = ['半天4h', '半天3h', '全天']; // 年休假专用：半天4h+半天3h=全天7h
 const LEAVE_SUBTYPES = ['年休假', '婚假', '陪产假', '工伤假', '丧假', '育儿假', '护理假'];
-const OVERTIME_DAY_HOURS = ['半天', '全天'];
+const OVERTIME_DAY_HOURS = ['半天4h', '半天3h', '全天'];
 // 超时时长（0.5-4，含小数）
 const OVERTIME_HOURS = ['0.5', '1', '1.5', '2', '2.5', '3', '3.5', '4'];
 const STORAGE_PEOPLE = 'attendance_people';
@@ -3377,7 +3377,7 @@ function renderStats() {
           if (status === 'overtime') {
             overtimeHours += parseFloat(hours);
           }
-          if (status === 'overtime_day' && hours === '半天') {
+          if (status === 'overtime_day' && (hours === '半天' || hours === '半天4h' || hours === '半天3h')) {
             overtimeDayHalf++;
           }
           if (status === 'manual') {
@@ -3495,7 +3495,7 @@ function batchSet(status) {
 function calcSummary(person, ym) {
   const data = loadData(person, ym);
   let count = 0, presentH = 0, leaveDays = 0, leaveHalf = 0, leaveHalf4h = 0, leaveHalf3h = 0, overtimeH = 0;
-  let overtimeDayDays = 0, overtimeDayHalf = 0;
+  let overtimeDayDays = 0, overtimeDayHalf = 0, overtimeDayHalf4h = 0, overtimeDayHalf3h = 0;
   let manualSheets = 0, manualDoses = 0, shiftCount = 0;
   let dischargeCount = 0, prepMedCount = 0;
   let tripHours = 0;
@@ -3522,6 +3522,8 @@ function calcSummary(person, ym) {
       if (status === 'overtime_day') {
         overtimeDayDays++;
         if (hours === '半天') overtimeDayHalf++;
+        else if (hours === '半天4h') overtimeDayHalf4h++;
+        else if (hours === '半天3h') overtimeDayHalf3h++;
       }
       if (status === 'manual') {
         manualSheets += parseInt(hours) || 0;
@@ -3543,7 +3545,7 @@ function calcSummary(person, ym) {
     count, presentH,
     leaveDays: leaveDays - leaveHalf * 0.5 - leaveHalf4h * (3/7) - leaveHalf3h * (4/7),
     overtimeH, tripHours,
-    overtimeDayDays: overtimeDayDays - overtimeDayHalf * 0.5,
+    overtimeDayDays: overtimeDayDays - overtimeDayHalf * 0.5 - overtimeDayHalf4h * (3/7) - overtimeDayHalf3h * (4/7),
     manualSheets, manualDoses, shiftCount, shiftCounts,
     dischargeCount, prepMedCount,
     totalDoses: manualDoses + dischargeCount * 0.6 + prepMedCount * 1.5
