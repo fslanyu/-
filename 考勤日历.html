@@ -815,6 +815,23 @@ if (_SB) {
     console.log('✅ Supabase 云模式已启用');
   }
 
+  // ★ 每日休超时假总量查询（云模式：直接查当天全员数据，供 pickHours 上限校验用）
+  window.__getDailyPresentTotal = async function(dayKey) {
+    const enc = encodeURIComponent;
+    const ymStr = dayKey.slice(0, 7);
+    const rows = await _sGET(`attendance?select=status_data&year_month=eq.${ymStr}&day_key=eq.${enc(dayKey)}`);
+    let total = 0;
+    for (const r of rows) {
+      const sts = parseStatuses(r.status_data);
+      for (const s of sts) {
+        if (s.status === 'present') {
+          total += (!s.hours || s.hours === '全天') ? 7 : (s.hours === '半天' ? 3.5 : (parseFloat(s.hours) || 0));
+        }
+      }
+    }
+    return total;
+  };
+
   // 延迟安装 init 覆写（等第二个 script 块的 init 定义好）
   setTimeout(() => {
     const _orig_init = init;
@@ -1076,6 +1093,46 @@ function calcOvertimeBalance(person, ymStr) {
   // 本月数据
   const cur = calcMonthOT(person, ymStr);
   return { carried, overtime: cur.overtime, present: cur.present, balance: carried + cur.overtime - cur.present };
+}
+
+// ── 每日休超时假上限（防止扎堆休假造成无人上班）──
+const DAILY_PRESENT_LIMIT = 21; // 每天全员累计最多 21 小时超时假
+
+function presentHoursValue(hours) {
+  if (!hours || hours === '全天') return 7;
+  if (hours === '半天') return 3.5;
+  return parseFloat(hours) || 0;
+}
+
+// localStorage 模式：统计某天全员休超时假总小时数
+function dailyPresentLocal(dayKey) {
+  const ymStr = ym();
+  let total = 0;
+  const people = loadPeople();
+  for (let i = 0; i < people.length; i++) {
+    const p = people[i];
+    const data = loadData(p, ymStr);
+    const raw = data[dayKey];
+    if (!raw) continue;
+    const sts = parseStatuses(raw);
+    for (let j = 0; j < sts.length; j++) {
+      if (sts[j].status === 'present') total += presentHoursValue(sts[j].hours);
+    }
+  }
+  return total;
+}
+
+// 云模式优先，失败/本地模式回退（3秒超时保护）
+async function getDailyPresentTotal(dayKey) {
+  if (window.__getDailyPresentTotal) {
+    try {
+      return await Promise.race([
+        window.__getDailyPresentTotal(dayKey),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 3000))
+      ]);
+    } catch (e) { /* 回退本地 */ }
+  }
+  return dailyPresentLocal(dayKey);
 }
 
 // 计算某人上一年的超时净余额（用于新年度结转建议）
@@ -2170,12 +2227,12 @@ function closeHourPicker() {
   document.getElementById('hourPickerOverlay')?.remove();
 }
 
-function pickHours(key, hours, statusType, leaveSubtype) {
+async function pickHours(key, hours, statusType, leaveSubtype) {
   closeHourPicker();
 
   // 休超时假：检查余额，不允许超过 -2h
   if (statusType === 'present') {
-    const hNum = hours === '全天' ? 7 : hours === '半天' ? 3.5 : parseFloat(hours);
+    const hNum = presentHoursValue(hours);
     const raw = ((loadData(currentPerson, ym()) || {})[key]) || null;
     // 计算已有休超时假（替换场景：新值替换旧值，净增量为 delta）
     let oldPresentH = 0;
@@ -2183,7 +2240,7 @@ function pickHours(key, hours, statusType, leaveSubtype) {
       const existing = parseStatuses(raw);
       for (const s of existing) {
         if (s.status === 'present') {
-          oldPresentH = (!s.hours || s.hours === '全天') ? 7 : s.hours === '半天' ? 3.5 : parseFloat(s.hours);
+          oldPresentH = presentHoursValue(s.hours);
         }
       }
     }
@@ -2192,6 +2249,15 @@ function pickHours(key, hours, statusType, leaveSubtype) {
     const projected = bal.balance - delta;
     if (projected < -2) {
       showToast(`⚠️ 超时余额不足（余额 ${bal.balance}h，需 ${hNum}h，将透支至 ${projected}h）。请改用年休假`, true);
+      return;
+    }
+
+    // ★ 每日上限：当天全员休超时假累计不超过 21h（防止扎堆造成无人上班）
+    const dailyTotal = await getDailyPresentTotal(key);
+    const newDailyTotal = dailyTotal + delta;
+    if (newDailyTotal > DAILY_PRESENT_LIMIT) {
+      const remain = Math.max(0, DAILY_PRESENT_LIMIT - dailyTotal);
+      showToast(`⚠️ 当天休超时假已达上限（已休 ${dailyTotal}h，每日最多 ${DAILY_PRESENT_LIMIT}h${remain > 0 ? '，还可休 ' + remain + 'h' : ''}），无法再登记`, true);
       return;
     }
   }
