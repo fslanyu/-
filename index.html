@@ -1157,7 +1157,7 @@ function calcOvertimeBalance(person, ymStr) {
 }
 
 // ── 每日休超时假上限（防止扎堆休假造成无人上班）──
-const DAILY_PRESENT_LIMIT = 21; // 每天全员累计最多 21 小时超时假
+const DAILY_PRESENT_LIMIT = 28; // 每天全员累计最多 28 小时超时假
 
 function presentHoursValue(hours) {
   if (!hours || hours === '全天') return 7;
