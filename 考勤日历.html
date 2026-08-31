@@ -250,6 +250,13 @@ body {
   width: 4px; height: 4px; border-radius: 50%;
   background: #f0a030; position: absolute; top: 4px; right: 4px;
 }
+.full-mark {
+  display: inline-block;
+  font-size: 8px; line-height: 1;
+  color: #fff; background: #d14343;
+  border-radius: 3px; padding: 1px 2px;
+  font-weight: 700; margin-bottom: 1px;
+}
 
 /* Team chips */
 .team-chips { display: flex; flex-wrap: wrap; gap: 1px; justify-content: center; max-width: 100%; padding: 0 1px; }
@@ -961,6 +968,8 @@ if (_SB) {
             await window.__preloadPersonYear(currentPerson, currentYear - 1);
             render();
           } catch(e) {}
+          // 刷新"超时假已满"的天（全员当日累计，标记到日历上）
+          try { refreshFullDays(); } catch(e) {}
         }
       }, 500);
       // 实时轮询（每10秒）+ 网络恢复自动补全人员列表
@@ -1194,6 +1203,42 @@ async function getDailyPresentTotal(dayKey) {
     } catch (e) { /* 回退本地 */ }
   }
   return dailyPresentLocal(dayKey);
+}
+
+// ── 每日超时假"已满"标记（全员累计 ≥ DAILY_PRESENT_LIMIT）──
+let fullPresentDays = new Set();
+
+// 从已加载数据计算哪些天超时假已满
+function computeFullDaysLocal() {
+  const ymStr = ym();
+  const people = loadPeople();
+  const dailyTotal = {};
+  for (let i = 0; i < people.length; i++) {
+    const p = people[i];
+    const data = loadData(p, ymStr);
+    for (const [dayKey, raw] of Object.entries(data)) {
+      const sts = parseStatuses(raw);
+      for (const s of sts) {
+        if (s.status === 'present') {
+          dailyTotal[dayKey] = (dailyTotal[dayKey] || 0) + presentHoursValue(s.hours);
+        }
+      }
+    }
+  }
+  const full = new Set();
+  for (const [dayKey, total] of Object.entries(dailyTotal)) {
+    if (total >= DAILY_PRESENT_LIMIT) full.add(dayKey);
+  }
+  return full;
+}
+
+// 刷新"超时假已满"的天（云端预加载当月全员数据后计算并重绘）
+async function refreshFullDays() {
+  if (window.__preloadMonthData) {
+    try { await window.__preloadMonthData(ym()); } catch (e) {}
+  }
+  fullPresentDays = computeFullDaysLocal();
+  render();
 }
 
 // 计算某人上一年的超时净余额（用于新年度结转建议）
@@ -2695,6 +2740,7 @@ function render() {
       <div class="legend-item"><div class="legend-dot" style="background:#fce4ec;border:2px solid #c2185b;"></div>班次</div>
       <div class="legend-item"><div class="legend-dot" style="background:#e3f2fd;border:2px solid #1565c0;"></div>发出院</div>
       <div class="legend-item"><div class="legend-dot" style="background:#fff3e0;border:2px solid #e65100;"></div>挑药</div>
+      <div class="legend-item"><span class="full-mark" style="margin:0;">满</span>超时假已满(当天不能再休)</div>
     </div>
 
     <div class="stats" id="stats"></div>
@@ -3195,7 +3241,7 @@ function renderDaysGrid() {
       if (isReadOnly) {
         lockHtml = '<span class="lock-icon" style="opacity:0.4;">👁</span>';
       }
-      cell.innerHTML = `<span class="day-num">${d}</span>${badgesHtml}${hasNote?'<span class="note-dot"></span>':''}${lockHtml}`;
+      cell.innerHTML = `<span class="day-num">${d}</span>${fullPresentDays.has(key) ? '<span class="full-mark" title="当天超时假已满">满</span>' : ''}${badgesHtml}${hasNote?'<span class="note-dot"></span>':''}${lockHtml}`;
 
       if (isAdmin) {
         cell.addEventListener('click', () => {
@@ -3516,6 +3562,7 @@ function prevMonth() {
   activeDate=null; viewTarget=null;
   document.getElementById('notePanel')?.classList.remove('active');
   render();
+  refreshFullDays();
 }
 function nextMonth() {
   if (currentMonth===12) { currentMonth=1; currentYear++; }
@@ -3523,6 +3570,7 @@ function nextMonth() {
   activeDate=null; viewTarget=null;
   document.getElementById('notePanel')?.classList.remove('active');
   render();
+  refreshFullDays();
 }
 function goToday() {
   const now = new Date();
@@ -3531,6 +3579,7 @@ function goToday() {
   activeDate=null; viewTarget=null;
   document.getElementById('notePanel')?.classList.remove('active');
   render();
+  refreshFullDays();
 }
 
 // ── Batch / Clear (admin only) ──
