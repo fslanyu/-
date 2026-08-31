@@ -850,6 +850,43 @@ if (_SB) {
     }
   };
 
+  // ★ 预加载某整年全员考勤数据（年休假已休天数、超时结转等跨月计算用）
+  window.__preloadYearData = async function(yearStr) {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/attendance?select=person,year_month,day_key,status_data&year_month=gte.${yearStr}-01&year_month=lte.${yearStr}-12`, {
+      headers: { apikey: SUPABASE_KEY, 'Range': '0-999999' }
+    });
+    if (!r.ok) throw new Error(`preload year ${yearStr}: ${r.status}`);
+    const rows = await r.json();
+    const byKey = {};
+    for (const row of rows) {
+      const ck = `${row.person}|${row.year_month}`;
+      if (!byKey[ck]) byKey[ck] = {};
+      byKey[ck][row.day_key] = row.status_data;
+    }
+    for (const [ck, d] of Object.entries(byKey)) {
+      _C.dataCache[ck] = { ...(_C.dataCache[ck] || {}), ...d };
+    }
+  };
+
+  // ★ 预加载某个人全年的考勤数据（当前查看的人的年休假已休/超时余额需要跨月数据）
+  window.__preloadPersonYear = async function(person, yearStr) {
+    const enc = encodeURIComponent;
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/attendance?select=year_month,day_key,status_data&person=eq.${enc(person)}&year_month=gte.${yearStr}-01&year_month=lte.${yearStr}-12`, {
+      headers: { apikey: SUPABASE_KEY, 'Range': '0-99999' }
+    });
+    if (!r.ok) throw new Error(`preload person year: ${r.status}`);
+    const rows = await r.json();
+    const byMonth = {};
+    for (const row of rows) {
+      const ck = `${person}|${row.year_month}`;
+      if (!byMonth[ck]) byMonth[ck] = {};
+      byMonth[ck][row.day_key] = row.status_data;
+    }
+    for (const [ck, d] of Object.entries(byMonth)) {
+      _C.dataCache[ck] = { ...(_C.dataCache[ck] || {}), ...d };
+    }
+  };
+
   // 延迟安装 init 覆写（等第二个 script 块的 init 定义好）
   setTimeout(() => {
     const _orig_init = init;
@@ -916,6 +953,12 @@ if (_SB) {
             const mergedNotes = {...localNotes, ...nd};
             if (Object.keys(nd).length > 0) localStorage.setItem(lsNoteKey, JSON.stringify(mergedNotes));
             _C.noteCache[`${currentPerson}|${ym}`] = mergedNotes;
+            render();
+          } catch(e) {}
+          // 预加载当前人员全年+去年数据（年休假已休天数、超时余额等跨月计算需要）
+          try {
+            await window.__preloadPersonYear(currentPerson, currentYear);
+            await window.__preloadPersonYear(currentPerson, currentYear - 1);
             render();
           } catch(e) {}
         }
@@ -3578,16 +3621,14 @@ function calcSummary(person, ym) {
 }
 
 // ── Export ──
-// 导出前预加载全员本月+上月考勤数据（云端懒加载会导致导出数据不全）
+// 导出前预加载全员今年+去年考勤数据（云端懒加载会导致数据不全；年休假已休天数需全年数据）
 async function preloadForExport() {
-  const ymStr = ym();
-  const [cy, cm] = ymStr.split('-').map(Number);
-  let py = cy, pm = cm - 1;
-  if (pm === 0) { py = cy - 1; pm = 12; }
-  const prevYM = py + '-' + String(pm).padStart(2, '0');
-  if (window.__preloadMonthData) {
+  if (window.__preloadYearData) {
     try {
-      await Promise.all([window.__preloadMonthData(ymStr), window.__preloadMonthData(prevYM)]);
+      await Promise.all([
+        window.__preloadYearData(currentYear),
+        window.__preloadYearData(currentYear - 1)
+      ]);
     } catch (e) { console.error('预加载数据失败', e); }
   }
 }
