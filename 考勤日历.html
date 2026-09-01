@@ -541,7 +541,7 @@ const SUPABASE_KEY = 'sb_publishable_iZI1HfOLJqFntgBxkjhD5g_DycELeiQ';
 const _SB = !!(SUPABASE_URL && SUPABASE_KEY && !SUPABASE_URL.includes('xxxx'));
 
 if (_SB) {
-  const _C = { people: null, pinMap: {}, configMap: {}, dataCache: {}, noteCache: {} };
+  const _C = { people: null, pinMap: {}, configMap: {}, dataCache: {}, noteCache: {}, lastPush: {} };
 
   async function _sGET(p) {
     const r = await fetch(`${SUPABASE_URL}/rest/v1/${p}`, {
@@ -894,6 +894,53 @@ if (_SB) {
     }
   };
 
+  // ★ 本地补传云端：把 localStorage 里云端缺失/不一致的条目推上去（local 为准）
+  //   overwrite=false：只补云端缺失的条目（安全，绝不覆盖云端已有数据）
+  //   overwrite=true ：缺失补 POST，不一致补 PATCH（local 覆盖云端，管理员/恢复数据用）
+  window.__pushLocalToCloud = async function(person, ym, overwrite) {
+    const enc = encodeURIComponent;
+    let localData = {};
+    try { localData = JSON.parse(localStorage.getItem('att_' + person + '_' + ym) || '{}'); } catch(e) { return 0; }
+    if (Object.keys(localData).length === 0) return 0;
+    let cloud = {};
+    try {
+      const rows = await _sGET(`attendance?select=day_key,status_data&person=eq.${enc(person)}&year_month=eq.${ym}`);
+      for (const r of rows) cloud[r.day_key] = r.status_data;
+    } catch(e) { return 0; }
+    let pushed = 0;
+    for (const [dk, sd] of Object.entries(localData)) {
+      if (cloud[dk] === sd) continue;                    // 一致，跳过
+      if (!(dk in cloud)) {                              // 云端缺失 → POST 补齐
+        try { await _sPOST('attendance', {person, year_month: ym, day_key: dk, status_data: sd}); pushed++; }
+        catch(e) { console.error('补传失败', person, dk, e); }
+      } else if (overwrite) {                            // 云端不一致且允许覆盖 → PATCH
+        const m = `person=eq.${enc(person)}&year_month=eq.${ym}&day_key=eq.${enc(dk)}`;
+        try { const ex = await _sGET(`attendance?select=id&${m}`); if (ex.length) await _sPATCH('attendance', `id=eq.${ex[0].id}`, {status_data: sd}); pushed++; }
+        catch(e) { console.error('补传(覆盖)失败', person, dk, e); }
+      }
+      // overwrite=false 且云端不一致：跳过，避免旧数据覆盖新数据
+    }
+    if (pushed > 0) _C.dataCache[`${person}|${ym}`] = { ...(_C.dataCache[`${person}|${ym}`] || {}), ...localData };
+    return pushed;
+  };
+
+  // ★ 补传全部人员全部月份（管理员手动触发）
+  window.__pushAllLocalToCloud = async function(overwrite) {
+    const keys = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (/^att_[\u4e00-\u9fa5a-zA-Z0-9]+_\d{4}-\d{2}$/.test(k)) keys.push(k);
+    }
+    let total = 0; const persons = new Set();
+    for (const k of keys) {
+      const m = k.match(/^att_(.+)_(\d{4}-\d{2})$/);
+      if (!m) continue;
+      persons.add(m[1]);
+      try { total += await window.__pushLocalToCloud(m[1], m[2], overwrite); } catch(e) {}
+    }
+    return { total, persons: persons.size };
+  };
+
   // 延迟安装 init 覆写（等第二个 script 块的 init 定义好）
   setTimeout(() => {
     const _orig_init = init;
@@ -995,6 +1042,14 @@ if (_SB) {
               changed = true;
             }
             pollOk = true;
+            // ★ 本地补传云端（仅当前人员，30秒节流，只补缺失不覆盖——旧数据不会盖新数据）
+            if (p === currentPerson) {
+              const pk = `${p}|${ym}`;
+              if (Date.now() - (_C.lastPush[pk] || 0) > 30000) {
+                _C.lastPush[pk] = Date.now();
+                window.__pushLocalToCloud(p, ym, false).then(n => { if (n > 0) console.log('☁️ 已补传', p, ym, n, '条到云端'); }).catch(() => {});
+              }
+            }
           } catch(e) {}
         }
         // 网络恢复 → 重新加载人员列表（解决首次打开网络不通只显示"本人"的问题）
@@ -1146,23 +1201,42 @@ function calcMonthOT(person, ymStr) {
   return { overtime: overtimeH, present: presentH };
 }
 
-// 计算某人当月超时余额：上月结转 + 本月超时 - 本月补休
-// 上月的超时只在本月有效，本月结束后未休完的过期
+// 计算某人当月超时余额（超时次月有效、过期作废）
+// 规则：本月结转 = 上月结转 + 本月超时 - 本月补休；上月结转仅下月有效，未用完部分到期作废。
+// 底数结转（config overtime_carryover）为 2026-06 月底余额，2026-07 起逐月 FIFO 滚动。
+const OT_CARRY_BASE_MONTH = '2026-06'; // 底数结转截止月，滚动从下月（2026-07）开始
+
 function calcOvertimeBalance(person, ymStr) {
   const carryover = loadOvertimeCarryover();
-  let carried = carryover[person] || 0; // 管理员设定的初始结转
+  const base = carryover[person] || 0;
 
-  // 只结转上个月的净额（超时 - 补休）—— 跨年也支持
   const [cy, cm] = ymStr.split('-').map(Number);
-  let prevYear = cy, prevMonth = cm - 1;
-  if (prevMonth === 0) { prevYear = cy - 1; prevMonth = 12; }
-  const prevYM = prevYear + '-' + String(prevMonth).padStart(2, '0');
-  const prevOT = calcMonthOT(person, prevYM);
-  carried += prevOT.overtime - prevOT.present;
+  const [by, bm] = OT_CARRY_BASE_MONTH.split('-').map(Number);
+
+  // 目标月在底数月（含）之前：无滚动数据，直接以底数作为结转
+  if (cy < by || (cy === by && cm <= bm)) {
+    return { carried: base, overtime: 0, present: 0, balance: base };
+  }
+
+  // 从底数月下个月滚动到目标月的前一月，得到 carried（上月结转）
+  let carry = base;
+  let y = by, m = bm + 1;
+  if (m > 12) { m = 1; y++; }
+  while (y < cy || (y === cy && m < cm)) {
+    const ym = y + '-' + String(m).padStart(2, '0');
+    const ot = calcMonthOT(person, ym);
+    // 本月结转 = min(本月超时, 上月结转 + 本月超时 - 本月补休)
+    // min() 体现"上月结转仅下月有效"：上月未用完部分到期作废，故结转上限为本月超时
+    carry = Math.min(ot.overtime, carry + ot.overtime - ot.present);
+    m++;
+    if (m > 12) { m = 1; y++; }
+  }
 
   // 本月数据
   const cur = calcMonthOT(person, ymStr);
-  return { carried, overtime: cur.overtime, present: cur.present, balance: carried + cur.overtime - cur.present };
+  const gross = carry + cur.overtime - cur.present; // 本月可用（上月结转 + 本月超时 - 本月补休）
+  // 净余额（balance）= 本月可用；carry = 本月结转（上月结转仅下月有效，未用完作废，结转上限为本月超时）
+  return { carried: carry, overtime: cur.overtime, present: cur.present, balance: gross, carry: Math.min(cur.overtime, gross) };
 }
 
 // ── 每日休超时假上限（防止扎堆休假造成无人上班）──
@@ -1250,16 +1324,9 @@ async function refreshFullDays() {
 }
 
 // 计算某人上一年的超时净余额（用于新年度结转建议）
+// 按 FIFO 滚动规则取上一年 12 月的结转（= 跨年到次年 1 月的结转）
 function calcPrevYearBalance(person) {
-  const carryover = loadOvertimeCarryover();
-  let balance = carryover[person] || 0;
-  const prevYear = currentYear - 1;
-  for (let m = 1; m <= 12; m++) {
-    const ym = prevYear + '-' + String(m).padStart(2, '0');
-    const ot = calcMonthOT(person, ym);
-    balance += ot.overtime - ot.present;
-  }
-  return balance;
+  return calcOvertimeBalance(person, (currentYear - 1) + '-12').carry;
 }
 
 // 计算某人上一年年休假剩余天数（用于新年度结转建议）
@@ -2362,7 +2429,7 @@ async function pickHours(key, hours, statusType, leaveSubtype) {
     const bal = calcOvertimeBalance(currentPerson, ym());
     const projected = bal.balance - delta;
     if (projected < -2) {
-      showToast(`⚠️ 超时余额不足（余额 ${bal.balance}h，需 ${hNum}h，将透支至 ${projected}h）。请改用年休假`, true);
+      showToast(`⚠️ 超时余额不足（可用余额 ${bal.balance}h，需 ${hNum}h，将透支至 ${projected}h）。请改用年休假`, true);
       return;
     }
 
@@ -2787,6 +2854,7 @@ function render() {
       <span style="flex:1"></span>
       <button onclick="exportFullBackup()" style="background:#10b981;color:#fff;border-color:#10b981;">💾 备份数据</button>
       <button onclick="importFullBackup()">📥 恢复数据</button>
+      ${isAdmin ? '<button onclick="syncLocalToCloud()" style="background:#0ea5e9;color:#fff;border-color:#0ea5e9;">☁️ 补传本地到云端</button>' : ''}
       ${isAdmin ? '<button onclick="clearAllLocks()" style="background:#ef4444;color:#fff;border-color:#ef4444;">🔓 清除所有锁定</button>' : ''}
       ${isAdmin ? '<button onclick="clearJuneData()" style="background:#f97316;color:#fff;border-color:#f97316;">🗑 清除6月及之前数据</button>' : ''}
       ${isAdmin ? '<button onclick="clearAllData()" style="background:#dc2626;color:#fff;border-color:#dc2626;">🗑 清除所有考勤数据</button>' : ''}
@@ -3524,7 +3592,7 @@ function renderStats() {
         📊 本月 休超时假共 <b>${presentTotalH}</b>h | 年休假共 <b>${leaveTotalDays}</b>天 | 超时共 <b>${overtimeHours}</b>h
       </div>
       <div class="stat-item" style="background:#fff7ed;padding:4px 10px;border-radius:6px;flex-basis:100%;">
-        ⏱ 超时余额：${otBal.carried > 0 ? `上月结转 <b>${otBal.carried}</b>h + ` : ''}本月超时 <b>${otBal.overtime}</b>h − 已补休 <b>${otBal.present}</b>h = 净余额 <b style="color:${otBal.balance >= 0 ? '#2d8a2d' : '#d14343'}">${otBal.balance}</b>h
+        ⏱ 超时余额：净余额 <b style="color:${otBal.balance >= 0 ? '#2d8a2d' : '#d14343'}">${otBal.balance}</b>h${otBal.carried > 0 || otBal.overtime > 0 || otBal.present > 0 ? `（${otBal.carried > 0 ? `上月结转 <b>${otBal.carried}</b>h 未用完作废 · ` : ''}本月超时 <b>${otBal.overtime}</b>h · 已补休 <b>${otBal.present}</b>h）` : ''}
       </div>
       ${(() => { const q = getPersonLeaveQuota(displayPerson); return `<div class=\"stat-item\" style=\"background:#fff7ed;padding:4px 10px;border-radius:6px;flex-basis:100%;\">🏖 年休假：总额 <b>${q.total}</b>天 − 已休 <b>${q.used}</b>天 = 剩余 <b>${q.remaining}</b>天</div>`; })()}
       <div class="stat-item">👤 <b>${displayPerson}</b>${viewTarget ? ' <span style="font-size:10px;color:#e67e22;">(👁只读)</span>' : ''}</div>
@@ -3962,6 +4030,24 @@ function exportFullBackup() {
   showToast('✅ 数据备份已下载');
 }
 
+// 补传本地考勤数据到云端（管理员手动触发，local 为准覆盖云端）
+async function syncLocalToCloud() {
+  if (!isAdmin) return;
+  if (typeof window.__pushAllLocalToCloud !== 'function') {
+    showToast('⚠️ 当前非云端模式，无需补传', true);
+    return;
+  }
+  if (!confirm('将把本机 localStorage 里的考勤数据补传到云端。\n\n本地为准：云端缺失的补齐，云端不一致的以本地覆盖。\n\n确认继续？')) return;
+  showToast('☁️ 正在补传本地数据到云端...');
+  try {
+    const r = await window.__pushAllLocalToCloud(true);
+    showToast(`✅ 补传完成：${r.persons} 人，共 ${r.total} 条`);
+    render();
+  } catch(e) {
+    showToast('❌ 补传失败：' + (e.message || e), true);
+  }
+}
+
 // 从 JSON 文件恢复数据
 function importFullBackup() {
   const input = document.createElement('input');
@@ -3971,7 +4057,7 @@ function importFullBackup() {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (ev) => {
+    reader.onload = async (ev) => {
       try {
         const allData = JSON.parse(ev.target.result);
         let count = 0;
@@ -3987,10 +4073,21 @@ function importFullBackup() {
           currentPerson = people[0];
           saveCurrentPerson(currentPerson);
         }
-        showToast(`✅ 已恢复 ${count} 条数据，刷新中...`);
+        // ★ 把恢复的数据补传到云端（local 为准，覆盖云端不一致条目）
+        showToast(`✅ 已恢复 ${count} 条数据，正在补传云端...`);
+        try {
+          if (typeof window.__pushAllLocalToCloud === 'function') {
+            const r = await window.__pushAllLocalToCloud(true);
+            showToast(`✅ 已恢复 ${count} 条，补传云端 ${r.total} 条（${r.persons} 人），刷新中...`);
+          } else {
+            showToast(`✅ 已恢复 ${count} 条数据，刷新中...`);
+          }
+        } catch(e) {
+          showToast(`✅ 已恢复 ${count} 条（云端补传未完成：${e.message || e}），刷新中...`);
+        }
         setTimeout(() => {
           location.reload();
-        }, 800);
+        }, 1200);
       } catch (err) {
         showToast('❌ 文件格式错误，请选择正确的备份文件', true);
       }
