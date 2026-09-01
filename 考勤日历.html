@@ -1326,7 +1326,7 @@ async function refreshFullDays() {
 // 计算某人上一年的超时净余额（用于新年度结转建议）
 // 按 FIFO 滚动规则取上一年 12 月的结转（= 跨年到次年 1 月的结转）
 function calcPrevYearBalance(person) {
-  return calcOvertimeBalance(person, (currentYear - 1) + '-12').carry;
+  return calcOvertimeBalance(person, (currentYear - 1) + '-12').carry || 0;
 }
 
 // 计算某人上一年年休假剩余天数（用于新年度结转建议）
@@ -2428,7 +2428,7 @@ async function pickHours(key, hours, statusType, leaveSubtype) {
     const delta = hNum - oldPresentH;
     const bal = calcOvertimeBalance(currentPerson, ym());
     const projected = bal.balance - delta;
-    if (projected < -2) {
+    if (projected < -2.5) {
       showToast(`⚠️ 超时余额不足（可用余额 ${bal.balance}h，需 ${hNum}h，将透支至 ${projected}h）。请改用年休假`, true);
       return;
     }
