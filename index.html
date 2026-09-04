@@ -3539,6 +3539,7 @@ function renderStats() {
     const data = loadData(displayPerson, ym());
     let c = {present:0,absent:0,late:0,leave:0,trip:0,overtime:0,overtime_day:0,manual:0,shift:0,discharge:0,prep_med:0};
     let presentTotalH = 0, tripHours = 0, leaveHalf = 0, overtimeHours = 0;
+    let leaveSubtypeCount = {};
     let overtimeDayHalf = 0;
     let manualSheets = 0, manualDoses = 0;
     let dischargeCount = 0, prepMedCount = 0;
@@ -3549,9 +3550,23 @@ function renderStats() {
       if (statuses.length === 0) continue;
       marked++; // 该天有登记
       for (const s of statuses) {
-        const { status, hours } = s;
+        const { status, hours, subtype } = s;
         if (status && c.hasOwnProperty(status)) {
-          c[status]++;
+          if (status === 'leave') {
+            const sub = (!subtype || subtype === '年休假') ? '年休假' : subtype;
+            if (sub === '年休假') {
+              c.leave++;
+              if (hours === '半天' || hours === '半天4h' || hours === '半天3h') leaveHalf++;
+            } else {
+              const lc = leaveSubtypeCount[sub] || (leaveSubtypeCount[sub] = { count: 0, half: 0, half4h: 0, half3h: 0 });
+              lc.count++;
+              if (hours === '半天') lc.half++;
+              else if (hours === '半天4h') lc.half4h++;
+              else if (hours === '半天3h') lc.half3h++;
+            }
+          } else {
+            c[status]++;
+          }
           if (status === 'present') {
             if (!hours || hours === '全天') presentTotalH += 7;
             else if (hours === '半天') presentTotalH += 3.5;
@@ -3559,9 +3574,6 @@ function renderStats() {
           }
           if (status === 'trip' && hours) {
             tripHours += parseFloat(hours);
-          }
-          if (status === 'leave' && (hours === '半天' || hours === '半天4h' || hours === '半天3h')) {
-            leaveHalf++;
           }
           if (status === 'overtime') {
             overtimeHours += parseFloat(hours);
@@ -3586,6 +3598,16 @@ function renderStats() {
       }
     }
     const leaveTotalDays = c.leave - leaveHalf * 0.5;
+    let otherLeaveHtml = '';
+    for (const st of LEAVE_SUBTYPES) {
+      if (st === '年休假') continue;
+      const lc = leaveSubtypeCount[st];
+      const cnt = lc ? lc.count : 0;
+      const halfCnt = lc ? (lc.half + lc.half4h + lc.half3h) : 0;
+      if (cnt > 0) {
+        otherLeaveHtml += `<div class="stat-item">${st} <b>${cnt}</b>天${halfCnt > 0 ? ` (含${halfCnt}个半天)` : ''}</div>`;
+      }
+    }
     const otBal = calcOvertimeBalance(displayPerson, ym());
     let statsHtml = `
       <div class="stat-item" style="background:#f0f4ff;padding:4px 10px;border-radius:6px;flex-basis:100%;">
@@ -3602,6 +3624,7 @@ function renderStats() {
       <div class="stat-item">缺勤 <b>${c.absent}</b></div>
       <div class="stat-item">迟到 <b>${c.late}</b></div>
       <div class="stat-item">年休假 <b>${c.leave}</b>天${leaveHalf > 0 ? ` (含${leaveHalf}个半天)` : ''}</div>
+      ${otherLeaveHtml}
       <div class="stat-item">公差 <b>${tripHours}</b>h</div>
       <div class="stat-item">超时 <b>${overtimeHours}</b>h</div>
       <div class="stat-item">加班 <b>${c.overtime_day}</b>天${overtimeDayHalf > 0 ? ` (含${overtimeDayHalf}个半天)` : ''}</div>
@@ -3619,15 +3642,31 @@ function renderStats() {
     for (const p of people) {
       const data = loadData(p, ym());
       let c = {present:0,absent:0,late:0,leave:0,trip:0,overtime:0,overtime_day:0,manual:0,shift:0,discharge:0,prep_med:0};
+      let leaveSubtypeCount = {};
       for (const [_,v] of Object.entries(data)) {
         const statuses = parseStatuses(v);
         for (const s of statuses) {
-          if (s.status && c.hasOwnProperty(s.status)) c[s.status]++;
+          if (s.status === 'leave') {
+            const sub = (!s.subtype || s.subtype === '年休假') ? '年休假' : s.subtype;
+            if (sub === '年休假') c.leave++;
+            else {
+              const lc = leaveSubtypeCount[sub] || (leaveSubtypeCount[sub] = { count: 0 });
+              lc.count++;
+            }
+          } else if (s.status && c.hasOwnProperty(s.status)) {
+            c[s.status]++;
+          }
         }
+      }
+      let otherLeaveStr = '';
+      for (const st of LEAVE_SUBTYPES) {
+        if (st === '年休假') continue;
+        const cnt = (leaveSubtypeCount[st] && leaveSubtypeCount[st].count) || 0;
+        if (cnt > 0) otherLeaveStr += ` ${st}<b>${cnt}</b>`;
       }
       const eid = getEmployeeId(p);
       const pDisplay = eid ? `${p}(${eid})` : p;
-      html += `<div class="stat-item">${pDisplay}: 休超时假<b>${c.present}</b> 缺勤<b>${c.absent}</b> 迟到<b>${c.late}</b> 年休假<b>${c.leave}</b> 公差<b>${c.trip}</b> 加班<b>${c.overtime_day}</b> 手工单<b>${c.manual}</b> 班次<b>${c.shift}</b>${(() => { const q = getPersonLeaveQuota(p); return q.hasQuota ? ` 🏖<b>${q.used}/${q.total}</b>` : ''; })()}</div>`;
+      html += `<div class="stat-item">${pDisplay}: 休超时假<b>${c.present}</b> 缺勤<b>${c.absent}</b> 迟到<b>${c.late}</b> 年休假<b>${c.leave}</b>${otherLeaveStr} 公差<b>${c.trip}</b> 加班<b>${c.overtime_day}</b> 手工单<b>${c.manual}</b> 班次<b>${c.shift}</b>${(() => { const q = getPersonLeaveQuota(p); return q.hasQuota ? ` 🏖<b>${q.used}/${q.total}</b>` : ''; })()}</div>`;
     }
     statsDiv.innerHTML = html;
   }
@@ -3684,9 +3723,14 @@ function batchSet(status) {
 }
 
 // ── 导出汇总计算 ──
+// 请假天数折算：count=次数，half=半天(0.5天)，half4h=半天4h(4/7天)，half3h=半天3h(3/7天)
+function leaveDaysFrom(c) {
+  return c.count - (c.half || 0) * 0.5 - (c.half4h || 0) * (3 / 7) - (c.half3h || 0) * (4 / 7);
+}
 function calcSummary(person, ym) {
   const data = loadData(person, ym);
   let count = 0, presentH = 0, leaveDays = 0, leaveHalf = 0, leaveHalf4h = 0, leaveHalf3h = 0, overtimeH = 0;
+  let leaveSubtypeCount = {};
   let overtimeDayDays = 0, overtimeDayHalf = 0, overtimeDayHalf4h = 0, overtimeDayHalf3h = 0;
   let manualSheets = 0, manualDoses = 0, shiftCount = 0;
   let dischargeCount = 0, prepMedCount = 0;
@@ -3704,10 +3748,19 @@ function calcSummary(person, ym) {
         else presentH += parseFloat(hours);
       }
       if (status === 'leave') {
-        leaveDays++;
-        if (hours === '半天') leaveHalf++;
-        else if (hours === '半天4h') leaveHalf4h++;
-        else if (hours === '半天3h') leaveHalf3h++;
+        const sub = (!subtype || subtype === '年休假') ? '年休假' : subtype;
+        if (sub === '年休假') {
+          leaveDays++;
+          if (hours === '半天') leaveHalf++;
+          else if (hours === '半天4h') leaveHalf4h++;
+          else if (hours === '半天3h') leaveHalf3h++;
+        } else {
+          const lc = leaveSubtypeCount[sub] || (leaveSubtypeCount[sub] = { count: 0, half: 0, half4h: 0, half3h: 0 });
+          lc.count++;
+          if (hours === '半天') lc.half++;
+          else if (hours === '半天4h') lc.half4h++;
+          else if (hours === '半天3h') lc.half3h++;
+        }
       }
       if (status === 'overtime') overtimeH += parseFloat(hours);
       if (status === 'trip' && hours) tripHours += parseFloat(hours);
@@ -3733,9 +3786,15 @@ function calcSummary(person, ym) {
       }
     }
   }
+  const leaveSubtypes = {};
+  for (const st of LEAVE_SUBTYPES) {
+    if (st === '年休假') continue;
+    leaveSubtypes[st] = leaveDaysFrom(leaveSubtypeCount[st] || { count: 0, half: 0, half4h: 0, half3h: 0 });
+  }
   return {
     count, presentH,
     leaveDays: leaveDays - leaveHalf * 0.5 - leaveHalf4h * (3/7) - leaveHalf3h * (4/7),
+    leaveSubtypes,
     overtimeH, tripHours,
     overtimeDayDays: overtimeDayDays - overtimeDayHalf * 0.5 - overtimeDayHalf4h * (3/7) - overtimeDayHalf3h * (4/7),
     manualSheets, manualDoses, shiftCount, shiftCounts,
@@ -3779,6 +3838,10 @@ async function exportCSV() {
   csv += `汇总,,,\n`;
   csv += `休超时假总时长,,${s.presentH}h,\n`;
   csv += `年休假总天数,,${s.leaveDays}天,\n`;
+  for (const st of LEAVE_SUBTYPES) {
+    if (st === '年休假') continue;
+    csv += `${st}总天数,,${s.leaveSubtypes[st]}天,\n`;
+  }
   csv += `超时总时长,,${s.overtimeH}h,\n`;
   csv += `公差总时长,,${s.tripHours||0}h,\n`;
   csv += `加班总天数,,${s.overtimeDayDays}天,\n`;
@@ -3822,6 +3885,11 @@ async function exportAllCSV() {
   for (const p of people) { const s = calcSummary(p, ym()); csv += `,${s.presentH}`; }
   csv += `\n年休假(天),,`;
   for (const p of people) { const s = calcSummary(p, ym()); csv += `,${s.leaveDays}`; }
+  for (const st of LEAVE_SUBTYPES) {
+    if (st === '年休假') continue;
+    csv += `\n${st}(天),,`;
+    for (const p of people) { const s = calcSummary(p, ym()); csv += `,${s.leaveSubtypes[st]}`; }
+  }
   csv += `\n超时(h),,`;
   for (const p of people) { const s = calcSummary(p, ym()); csv += `,${s.overtimeH}`; }
   csv += '\n';
@@ -3906,6 +3974,10 @@ async function exportExcel() {
   allRows.push(['汇总', '', '', '']);
   allRows.push(['休超时假总时长', 'h', s.presentH, '']);
   allRows.push(['年休假总天数', '天', s.leaveDays, '']);
+  for (const st of LEAVE_SUBTYPES) {
+    if (st === '年休假') continue;
+    allRows.push([st + '总天数', '天', s.leaveSubtypes[st], '']);
+  }
   allRows.push(['超时总时长', 'h', s.overtimeH, '']);
   allRows.push(['公差总时长', 'h', s.tripHours||0, '']);
   allRows.push(['加班总天数', '天', s.overtimeDayDays, '']);
@@ -3954,7 +4026,9 @@ async function exportAllExcel() {
     const dow = new Date(currentYear, currentMonth - 1, d).getDay();
     header.push(`${currentMonth}/${d} 星期${weekNames[dow]}`);
   }
-  header.push('休超时假(h)', '年休假(天)', '超时(h)', '公差(h)', '加班(天)',
+  header.push('休超时假(h)', '年休假(天)');
+  for (const st of LEAVE_SUBTYPES) { if (st !== '年休假') header.push(st + '(天)'); }
+  header.push('超时(h)', '公差(h)', '加班(天)',
     '手工单(张)', '手工单(剂)', '发出院(个)', '挑药(剂)',
     '班次(次)', '早班', '晚班', '出院班', '直落', '总剂数', '总条目数',
     '超时余额(h)', '年休假余额(天)');
@@ -3970,7 +4044,9 @@ async function exportAllExcel() {
       row.push(data[key] ? getDisplayLabel(data[key]) : '');
     }
     const s = calcSummary(p, ym());
-    row.push(s.presentH, s.leaveDays, s.overtimeH, s.tripHours||0, s.overtimeDayDays,
+    row.push(s.presentH, s.leaveDays);
+    for (const st of LEAVE_SUBTYPES) { if (st !== '年休假') row.push(s.leaveSubtypes[st]); }
+    row.push(s.overtimeH, s.tripHours||0, s.overtimeDayDays,
       s.manualSheets||0, s.manualDoses||0, s.dischargeCount||0, s.prepMedCount||0,
       s.shiftCount||0, s.shiftCounts.早班||0, s.shiftCounts.晚班||0,
       s.shiftCounts.出院班||0, s.shiftCounts.直落||0,
@@ -3986,11 +4062,11 @@ async function exportAllExcel() {
   // Column widths
   const colWidths = [{wch: 8}, {wch: 6}];
   for (let d = 1; d <= daysInMonth; d++) colWidths.push({wch: 8});
-  for (let i = 0; i < 16; i++) colWidths.push({wch: 10});
+  for (let i = 0; i < 22; i++) colWidths.push({wch: 10});
   ws['!cols'] = colWidths;
 
   // Merge title row
-  const totalCols = 2 + daysInMonth + 18;
+  const totalCols = 2 + daysInMonth + 24;
   ws['!merges'] = [{s: {r: 0, c: 0}, e: {r: 0, c: totalCols - 1}}];
 
   XLSX.utils.book_append_sheet(wb, ws, '全员考勤');
