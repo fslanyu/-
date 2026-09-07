@@ -1393,6 +1393,14 @@ function calcAnnualLeaveUsed(person, year) {
   return used;
 }
 
+// 年休假单条时长折算为天数（半天4h=4/7，半天3h=3/7，半天=0.5，全天=1）
+function annualLeaveDays(hours) {
+  if (hours === '半天4h') return 4 / 7;
+  if (hours === '半天3h') return 3 / 7;
+  if (hours === '半天') return 0.5;
+  return 1;
+}
+
 // 获取某人的年休假额度信息 { allocation, carryover, total, used, remaining, hasQuota }
 function getPersonLeaveQuota(person) {
   const quotas = loadLeaveQuotas();
@@ -2461,6 +2469,29 @@ async function pickHours(key, hours, statusType, leaveSubtype) {
       return;
     }
   }
+
+  // ★ 年休假额度校验：绝对不能超额（剩1天只能休1天，不能休2天或1天+半天4h/3h）
+  if (statusType === 'leave' && (!leaveSubtype || leaveSubtype === '年休假')) {
+    const _hNum = annualLeaveDays(hours);
+    const _raw0 = ((loadData(currentPerson, ym()) || {})[key]) || null;
+    let _oldAnnual = 0;
+    if (_raw0) {
+      for (const _s of parseStatuses(_raw0)) {
+        if (_s.status === 'leave' && (!_s.subtype || _s.subtype === '年休假')) {
+          _oldAnnual += annualLeaveDays(_s.hours);
+        }
+      }
+    }
+    const _delta = _hNum - _oldAnnual;
+    const _q = getPersonLeaveQuota(currentPerson);
+    if (_q.hasQuota && _delta > 0) {
+      const _projected = _q.used + _delta;
+      if (_projected - _q.total > 0.0001) {
+        showToast(`⚠️ 年休假超额：已休 ${_q.used.toFixed(2)} 天 + 本次 ${_delta.toFixed(2)} 天 = ${_projected.toFixed(2)} 天，超过总额 ${_q.total} 天，无法登记`, true);
+        return;
+      }
+    }
+  }
   const data = loadData(currentPerson, ym());
   const raw = data[key] || null;
   const result = appendStatus(raw, statusType, hours, leaveSubtype);
@@ -3460,6 +3491,14 @@ function cycleStatus(key) {
     if (next === 'prep_med') { showPrepMedPicker(key); return; }
     if (next === 'shift') { showShiftPicker(key); return; }
     const defHours = next === 'overtime' ? '2' : (next === 'trip' ? '1' : '全天');
+    // ★ 年休假额度校验：循环切换到年休假(全天)时，不能超额
+    if (next === 'leave') {
+      const _q = getPersonLeaveQuota(currentPerson);
+      if (_q.hasQuota && _q.used + 1 > _q.total + 0.0001) {
+        showToast(`⚠️ 年休假超额：已休 ${_q.used.toFixed(2)} 天，再休全天将达 ${(_q.used + 1).toFixed(2)} 天，超过总额 ${_q.total} 天，无法登记`, true);
+        return;
+      }
+    }
     data[key] = (next === 'present' || next === 'trip' || next === 'leave' || next === 'overtime' || next === 'overtime_day') ? formatStatus(next, defHours, null, true) : (next + '|admin');
   }
   else delete data[key];
