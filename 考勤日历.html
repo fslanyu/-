@@ -1015,6 +1015,17 @@ if (_SB) {
             await window.__preloadPersonYear(currentPerson, currentYear - 1);
             render();
           } catch(e) {}
+          // ★ 打开页面立即补传「上月 + 当月」本地数据到云端（只补缺失，下月导上月免手动切月份）
+          try {
+            const _pY = currentMonth === 1 ? currentYear - 1 : currentYear;
+            const _pM = currentMonth === 1 ? 12 : currentMonth - 1;
+            const _pYm = _pY + '-' + String(_pM).padStart(2, '0');
+            for (const _ms of [_pYm, ym]) {
+              window.__pushLocalToCloud(currentPerson, _ms, false)
+                .then(n => { if (n > 0) console.log('☁️ 已补传', currentPerson, _ms, n, '条到云端'); })
+                .catch(() => {});
+            }
+          } catch(e) {}
           // 刷新"超时假已满"的天（全员当日累计，标记到日历上）
           try { refreshFullDays(); } catch(e) {}
         }
@@ -1043,11 +1054,17 @@ if (_SB) {
             }
             pollOk = true;
             // ★ 本地补传云端（仅当前人员，30秒节流，只补缺失不覆盖——旧数据不会盖新数据）
+            //   范围扩展为「上月 + 当月」，下月导上月数据时打开页面即可自动补传上月
             if (p === currentPerson) {
-              const pk = `${p}|${ym}`;
-              if (Date.now() - (_C.lastPush[pk] || 0) > 30000) {
-                _C.lastPush[pk] = Date.now();
-                window.__pushLocalToCloud(p, ym, false).then(n => { if (n > 0) console.log('☁️ 已补传', p, ym, n, '条到云端'); }).catch(() => {});
+              const _prevY = currentMonth === 1 ? currentYear - 1 : currentYear;
+              const _prevM = currentMonth === 1 ? 12 : currentMonth - 1;
+              const _prevYm = _prevY + '-' + String(_prevM).padStart(2, '0');
+              for (const _mstr of [_prevYm, ym]) {
+                const pk = `${p}|${_mstr}`;
+                if (Date.now() - (_C.lastPush[pk] || 0) > 30000) {
+                  _C.lastPush[pk] = Date.now();
+                  window.__pushLocalToCloud(p, _mstr, false).then(n => { if (n > 0) console.log('☁️ 已补传', p, _mstr, n, '条到云端'); }).catch(() => {});
+                }
               }
             }
           } catch(e) {}
