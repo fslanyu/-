@@ -1215,7 +1215,7 @@ function calcOvertimeBalance(person, ymStr) {
 
   // 目标月在底数月（含）之前：无滚动数据，直接以底数作为结转
   if (cy < by || (cy === by && cm <= bm)) {
-    return { carried: base, overtime: 0, present: 0, balance: base };
+    return { carried: base, overtime: 0, present: 0, balance: base, carry: base };
   }
 
   // 从底数月下个月滚动到目标月的前一月，得到 carried（上月结转）
@@ -3994,7 +3994,7 @@ async function exportExcel() {
   allRows.push(['总条目数', '条', s.totalItems||0, '']);
   const otb = calcOvertimeBalance(currentPerson, ym());
   const lq = getPersonLeaveQuota(currentPerson);
-  allRows.push(['超时余额', 'h', otb.balance, '']);
+  allRows.push(['超时余额', 'h', otb.carry, '']);
   allRows.push(['年休假余额', '天', lq.remaining, '']);
 
   const wb = XLSX.utils.book_new();
@@ -4051,7 +4051,7 @@ async function exportAllExcel() {
       s.shiftCount||0, s.shiftCounts.早班||0, s.shiftCounts.晚班||0,
       s.shiftCounts.出院班||0, s.shiftCounts.直落||0,
       s.totalDoses||0, s.totalItems||0,
-      calcOvertimeBalance(p, ym()).balance,
+      calcOvertimeBalance(p, ym()).carry,
       getPersonLeaveQuota(p).remaining);
     allRows.push(row);
   }
