@@ -1401,6 +1401,24 @@ function annualLeaveDays(hours) {
   return 1;
 }
 
+// 判断年休假某时长是否会超额（用于选时长面板置灰）
+function annualLeaveWouldOverflow(key, hours) {
+  const q = getPersonLeaveQuota(currentPerson);
+  if (!q.hasQuota) return false;
+  const raw = ((loadData(currentPerson, ym()) || {})[key]) || null;
+  let oldAnnual = 0;
+  if (raw) {
+    for (const s of parseStatuses(raw)) {
+      if (s.status === 'leave' && (!s.subtype || s.subtype === '年休假')) {
+        oldAnnual += annualLeaveDays(s.hours);
+      }
+    }
+  }
+  const delta = annualLeaveDays(hours) - oldAnnual;
+  if (delta <= 0) return false;
+  return (q.used + delta) - q.total > 0.0001;
+}
+
 // 获取某人的年休假额度信息 { allocation, carryover, total, used, remaining, hasQuota }
 function getPersonLeaveQuota(person) {
   const quotas = loadLeaveQuotas();
@@ -2405,6 +2423,7 @@ function showHourPicker(key, statusType, leaveSubtype) {
   else if (statusType === 'overtime') { hoursList = OVERTIME_HOURS; title = '超时时长'; }
   else if (statusType === 'overtime_day') { hoursList = OVERTIME_DAY_HOURS; title = '加班时长'; }
   else { hoursList = PRESENT_HOURS; title = '休超时假时长'; }
+  const isAnnual = statusType === 'leave' && (!leaveSubtype || leaveSubtype === '年休假');
   let btns = '';
   for (const h of hoursList) {
     let label;
@@ -2413,10 +2432,15 @@ function showHourPicker(key, statusType, leaveSubtype) {
     else if (h === '半天3h') label = '半天3h';
     else if (h === '全天') label = statusType === 'present' ? '补休全天' : '全天';
     else label = h + 'h';
-    const clickArgs = leaveSubtype
-      ? `pickHours('${key}','${h}','${statusType}','${leaveSubtype}')`
-      : `pickHours('${key}','${h}','${statusType}')`;
-    btns += `<button class="picker-btn ${statusType}" onclick="${clickArgs}">${label}</button>`;
+    const overflow = isAnnual && annualLeaveWouldOverflow(key, h);
+    if (overflow) {
+      btns += `<button class="picker-btn ${statusType}" disabled title="年休假额度不足" style="opacity:0.4;cursor:not-allowed;">${label}</button>`;
+    } else {
+      const clickArgs = leaveSubtype
+        ? `pickHours('${key}','${h}','${statusType}','${leaveSubtype}')`
+        : `pickHours('${key}','${h}','${statusType}')`;
+      btns += `<button class="picker-btn ${statusType}" onclick="${clickArgs}">${label}</button>`;
+    }
   }
 
   overlay.innerHTML = `
@@ -3522,6 +3546,7 @@ function showHourPickerForAdmin(key, statusType, currentHours, leaveSubtype) {
   else if (statusType === 'overtime_day') { hoursList = OVERTIME_DAY_HOURS; title = '修改加班时长'; }
   else { hoursList = PRESENT_HOURS; title = '修改休超时假时长'; }
   const curLabel = currentHours === '半天' ? (statusType === 'present' ? '补休半天' : '半天') : currentHours === '半天4h' ? '半天4h' : currentHours === '半天3h' ? '半天3h' : currentHours === '全天' ? (statusType === 'present' ? '补休全天' : '全天') : currentHours + 'h';
+  const isAnnual = statusType === 'leave' && (!leaveSubtype || leaveSubtype === '年休假');
   let btns = '';
   for (const h of hoursList) {
     let label;
@@ -3531,10 +3556,15 @@ function showHourPickerForAdmin(key, statusType, currentHours, leaveSubtype) {
     else if (h === '全天') label = statusType === 'present' ? '补休全天' : '全天';
     else label = h + 'h';
     const activeStyle = h === currentHours ? 'background:#e6f7e6;font-weight:bold;' : '';
-    const clickArgs = leaveSubtype
-      ? `pickHours('${key}','${h}','${statusType}','${leaveSubtype}')`
-      : `pickHours('${key}','${h}','${statusType}')`;
-    btns += `<button class="picker-btn ${statusType}" style="${activeStyle}" onclick="${clickArgs}">${label}</button>`;
+    const overflow = isAnnual && annualLeaveWouldOverflow(key, h);
+    if (overflow) {
+      btns += `<button class="picker-btn ${statusType}" disabled title="年休假额度不足" style="opacity:0.4;cursor:not-allowed;">${label}</button>`;
+    } else {
+      const clickArgs = leaveSubtype
+        ? `pickHours('${key}','${h}','${statusType}','${leaveSubtype}')`
+        : `pickHours('${key}','${h}','${statusType}')`;
+      btns += `<button class="picker-btn ${statusType}" style="${activeStyle}" onclick="${clickArgs}">${label}</button>`;
+    }
   }
 
   overlay.innerHTML = `
