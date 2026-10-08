@@ -1127,16 +1127,18 @@ const LEAVE_SUBTYPES = ['年休假', '婚假', '陪产假', '工伤假', '丧假
 const OVERTIME_DAY_HOURS = ['半天4h', '半天3h', '全天'];
 // 超时时长（0.25起，15分钟间隔，最大4h）
 const OVERTIME_HOURS = ['0.25', '0.5', '0.75', '1', '1.25', '1.5', '1.75', '2', '2.25', '2.5', '2.75', '3', '3.25', '3.5', '3.75', '4'];
-// 超时时长显示：0.25→15m，0.75→45m，1.25→1h15m（内部仍存小数小时，便于计算/导出）
+// 超时时长显示：半时按小时(0.5h/1.5h/2.5h/3.5h)，整时按小时，其余15/45分用分钟(15m/45m/1h15m…)
 function overtimeLabel(h) {
   const num = parseFloat(h);
   if (!isFinite(num)) return String(h);
   const total = Math.round(num * 60);
   if (total === 0) return '0h';
   const hh = Math.floor(total / 60), mm = total % 60;
-  if (hh === 0) return mm + 'm';
-  if (mm === 0) return hh + 'h';
-  return hh + 'h' + mm + 'm';
+  if (mm === 0) return hh + 'h';          // 1h 2h 3h 4h
+  if (mm === 30) return (hh + 0.5) + 'h'; // 0.5h 1.5h 2.5h 3.5h
+  if (mm === 15) return hh === 0 ? '15m' : hh + 'h15m';
+  if (mm === 45) return hh === 0 ? '45m' : hh + 'h45m';
+  return hh === 0 ? mm + 'm' : hh + 'h' + mm + 'm';
 }
 const STORAGE_PEOPLE = 'attendance_people';
 const STORAGE_CURRENT = 'attendance_current_person';
