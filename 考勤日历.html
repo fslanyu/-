@@ -1127,6 +1127,17 @@ const LEAVE_SUBTYPES = ['年休假', '婚假', '陪产假', '工伤假', '丧假
 const OVERTIME_DAY_HOURS = ['半天4h', '半天3h', '全天'];
 // 超时时长（0.25起，15分钟间隔，最大4h）
 const OVERTIME_HOURS = ['0.25', '0.5', '0.75', '1', '1.25', '1.5', '1.75', '2', '2.25', '2.5', '2.75', '3', '3.25', '3.5', '3.75', '4'];
+// 超时时长显示：0.25→15m，0.75→45m，1.25→1h15m（内部仍存小数小时，便于计算/导出）
+function overtimeLabel(h) {
+  const num = parseFloat(h);
+  if (!isFinite(num)) return String(h);
+  const total = Math.round(num * 60);
+  if (total === 0) return '0h';
+  const hh = Math.floor(total / 60), mm = total % 60;
+  if (hh === 0) return mm + 'm';
+  if (mm === 0) return hh + 'h';
+  return hh + 'h' + mm + 'm';
+}
 const STORAGE_PEOPLE = 'attendance_people';
 const STORAGE_CURRENT = 'attendance_current_person';
 const STORAGE_PWD = 'attendance_admin_pwd';
@@ -1568,6 +1579,7 @@ function getDisplayLabel(raw) {
       return '班次 ' + (hours || '');
     }
     if (hours && hours !== '全天') {
+      if (status === 'overtime') return label + ' ' + overtimeLabel(hours);
       if (hours === '半天') return label + (status === 'present' ? ' 补休半天' : ' 半天');
       if (hours === '半天4h') return label + ' 半天4h';
       if (hours === '半天3h') return label + ' 半天3h';
@@ -2431,7 +2443,7 @@ function showHourPicker(key, statusType, leaveSubtype) {
     else if (h === '半天4h') label = '半天4h';
     else if (h === '半天3h') label = '半天3h';
     else if (h === '全天') label = statusType === 'present' ? '补休全天' : '全天';
-    else label = h + 'h';
+    else label = statusType === 'overtime' ? overtimeLabel(h) : h + 'h';
     const overflow = isAnnual && annualLeaveWouldOverflow(key, h);
     if (overflow) {
       btns += `<button class="picker-btn ${statusType}" disabled title="年休假额度不足" style="opacity:0.4;cursor:not-allowed;">${label}</button>`;
@@ -2536,7 +2548,7 @@ async function pickHours(key, hours, statusType, leaveSubtype) {
   else if (hours === '半天4h') label = `${name} 半天4h`;
   else if (hours === '半天3h') label = `${name} 半天3h`;
   else if (hours === '全天') label = statusType === 'present' ? `${name} 补休全天` : `${name} 全天`;
-  else label = `${name} ${hours}h`;
+  else label = `${name} ${statusType === 'overtime' ? overtimeLabel(hours) : hours + 'h'}`;
   showToast(`✅ 已登记：${label}`);
 }
 
@@ -3545,7 +3557,7 @@ function showHourPickerForAdmin(key, statusType, currentHours, leaveSubtype) {
   else if (statusType === 'overtime') { hoursList = OVERTIME_HOURS; title = '修改超时时长'; }
   else if (statusType === 'overtime_day') { hoursList = OVERTIME_DAY_HOURS; title = '修改加班时长'; }
   else { hoursList = PRESENT_HOURS; title = '修改休超时假时长'; }
-  const curLabel = currentHours === '半天' ? (statusType === 'present' ? '补休半天' : '半天') : currentHours === '半天4h' ? '半天4h' : currentHours === '半天3h' ? '半天3h' : currentHours === '全天' ? (statusType === 'present' ? '补休全天' : '全天') : currentHours + 'h';
+  const curLabel = currentHours === '半天' ? (statusType === 'present' ? '补休半天' : '半天') : currentHours === '半天4h' ? '半天4h' : currentHours === '半天3h' ? '半天3h' : currentHours === '全天' ? (statusType === 'present' ? '补休全天' : '全天') : (statusType === 'overtime' ? overtimeLabel(currentHours) : currentHours + 'h');
   const isAnnual = statusType === 'leave' && (!leaveSubtype || leaveSubtype === '年休假');
   let btns = '';
   for (const h of hoursList) {
@@ -3554,7 +3566,7 @@ function showHourPickerForAdmin(key, statusType, currentHours, leaveSubtype) {
     else if (h === '半天4h') label = '半天4h';
     else if (h === '半天3h') label = '半天3h';
     else if (h === '全天') label = statusType === 'present' ? '补休全天' : '全天';
-    else label = h + 'h';
+    else label = statusType === 'overtime' ? overtimeLabel(h) : h + 'h';
     const activeStyle = h === currentHours ? 'background:#e6f7e6;font-weight:bold;' : '';
     const overflow = isAnnual && annualLeaveWouldOverflow(key, h);
     if (overflow) {
@@ -3697,7 +3709,7 @@ function renderStats() {
     const otBal = calcOvertimeBalance(displayPerson, ym());
     let statsHtml = `
       <div class="stat-item" style="background:#f0f4ff;padding:4px 10px;border-radius:6px;flex-basis:100%;">
-        📊 本月 休超时假共 <b>${presentTotalH}</b>h | 年休假共 <b>${leaveTotalDays}</b>天 | 超时共 <b>${overtimeHours}</b>h
+        📊 本月 休超时假共 <b>${presentTotalH}</b>h | 年休假共 <b>${leaveTotalDays}</b>天 | 超时共 <b>${overtimeLabel(overtimeHours)}</b>
       </div>
       <div class="stat-item" style="background:#fff7ed;padding:4px 10px;border-radius:6px;flex-basis:100%;">
         ⏱ 超时余额：净余额 <b style="color:${otBal.balance >= 0 ? '#2d8a2d' : '#d14343'}">${otBal.balance}</b>h${otBal.carried !== 0 || otBal.overtime > 0 || otBal.present > 0 ? `（${otBal.carried !== 0 ? `上月结转 <b style="color:${otBal.carried < 0 ? '#d14343' : 'inherit'}">${otBal.carried}</b>h${otBal.carried > 0 ? ' 未用完作废' : ''} · ` : ''}本月超时 <b>${otBal.overtime}</b>h · 已补休 <b>${otBal.present}</b>h）` : ''}
@@ -3712,7 +3724,7 @@ function renderStats() {
       <div class="stat-item">年休假 <b>${c.leave}</b>天${leaveHalf > 0 ? ` (含${leaveHalf}个半天)` : ''}</div>
       ${otherLeaveHtml}
       <div class="stat-item">公差 <b>${tripHours}</b>h</div>
-      <div class="stat-item">超时 <b>${overtimeHours}</b>h</div>
+      <div class="stat-item">超时 <b>${overtimeLabel(overtimeHours)}</b></div>
       <div class="stat-item">加班 <b>${c.overtime_day}</b>天${overtimeDayHalf > 0 ? ` (含${overtimeDayHalf}个半天)` : ''}</div>
       ${manualSheets > 0 || manualDoses > 0 ? `<div class="stat-item">手工单 <b>${manualSheets}</b>张${manualDoses > 0 ? ` <b>${manualDoses}</b>剂` : ''}</div>` : `<div class="stat-item">手工单 <b>0</b>张</div>`}
       ${dischargeCount > 0 ? `<div class="stat-item">发出院 <b>${dischargeCount}</b>个</div>` : `<div class="stat-item">发出院 <b>0</b>个</div>`}
