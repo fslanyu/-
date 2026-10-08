@@ -1125,8 +1125,8 @@ const LEAVE_HOURS = ['半天4h', '半天3h', '全天'];
 const ANNUAL_LEAVE_HOURS = ['半天4h', '半天3h', '全天']; // 年休假专用：半天4h+半天3h=全天7h
 const LEAVE_SUBTYPES = ['年休假', '婚假', '陪产假', '工伤假', '丧假', '育儿假', '护理假'];
 const OVERTIME_DAY_HOURS = ['半天4h', '半天3h', '全天'];
-// 超时时长（0.5-4，含小数）
-const OVERTIME_HOURS = ['0.5', '1', '1.5', '2', '2.5', '3', '3.5', '4'];
+// 超时时长（0.25起，15分钟间隔，最大4h）
+const OVERTIME_HOURS = ['0.25', '0.5', '0.75', '1', '1.25', '1.5', '1.75', '2', '2.25', '2.5', '2.75', '3', '3.25', '3.5', '3.75', '4'];
 const STORAGE_PEOPLE = 'attendance_people';
 const STORAGE_CURRENT = 'attendance_current_person';
 const STORAGE_PWD = 'attendance_admin_pwd';
