@@ -565,6 +565,25 @@ if (_SB) {
         Prefer: 'return=minimal' } });
   }
 
+  // ★ 分页取全量：Supabase/PostgREST 单次请求最多返回 1000 行，
+  //   Range 写再大也会被截断，必须循环分页取完，否则数据缺失而不报错！
+  //   path 需自带 select/过滤条件；order 必传，保证分页边界稳定。
+  async function _sGETAll(path, order, pageSize = 1000) {
+    const sep = path.includes('?') ? '&' : '?';
+    const all = [];
+    for (let off = 0; ; off += pageSize) {
+      const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}${sep}order=${order}`, {
+        headers: { apikey: SUPABASE_KEY, 'Range': `${off}-${off + pageSize - 1}` }
+      });
+      if (!r.ok) throw new Error(`${path}: ${r.status}`);
+      const rows = await r.json();
+      all.push(...rows);
+      if (rows.length < pageSize) break;
+      if (off > 500000) break; // 安全上限
+    }
+    return all;
+  }
+
   // 从 Supabase 加载（带重试：部分网络首次连不上，最多试3次）
   function _sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
   async function _loadAll(retries = 3) {
@@ -841,11 +860,10 @@ if (_SB) {
 
   // ★ 预加载某月全员考勤数据到缓存（导出/统计前调用，解决懒加载导致数据不全）
   window.__preloadMonthData = async function(ymStr) {
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/attendance?select=person,day_key,status_data&year_month=eq.${ymStr}`, {
-      headers: { apikey: SUPABASE_KEY, 'Range': '0-49999' }
-    });
-    if (!r.ok) throw new Error(`preload ${ymStr}: ${r.status}`);
-    const rows = await r.json();
+    const rows = await _sGETAll(
+      `attendance?select=person,day_key,status_data&year_month=eq.${ymStr}`,
+      'person,day_key'
+    );
     const byPerson = {};
     for (const row of rows) {
       if (!byPerson[row.person]) byPerson[row.person] = {};
@@ -858,31 +876,41 @@ if (_SB) {
   };
 
   // ★ 预加载某整年全员考勤数据（年休假已休天数、超时结转等跨月计算用）
+  //   完成后：该年「每个人员 × 每个月」都会写入缓存（空月也写空对象），
+  //   使 loadData 不再回退到本机 localStorage 的旧数据 —— 导出结果 = 云端全量。
   window.__preloadYearData = async function(yearStr) {
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/attendance?select=person,year_month,day_key,status_data&year_month=gte.${yearStr}-01&year_month=lte.${yearStr}-12`, {
-      headers: { apikey: SUPABASE_KEY, 'Range': '0-999999' }
-    });
-    if (!r.ok) throw new Error(`preload year ${yearStr}: ${r.status}`);
-    const rows = await r.json();
+    const rows = await _sGETAll(
+      `attendance?select=person,year_month,day_key,status_data&year_month=gte.${yearStr}-01&year_month=lte.${yearStr}-12`,
+      'person,year_month,day_key'
+    );
     const byKey = {};
     for (const row of rows) {
       const ck = `${row.person}|${row.year_month}`;
       if (!byKey[ck]) byKey[ck] = {};
       byKey[ck][row.day_key] = row.status_data;
     }
+    // ① 先把云端拉到的写进缓存
     for (const [ck, d] of Object.entries(byKey)) {
       _C.dataCache[ck] = { ...(_C.dataCache[ck] || {}), ...d };
     }
+    // ② 再把「全员 × 全月」标记为已加载（无数据的月份写空对象）
+    const _ppl = (_C.people && _C.people.length) ? _C.people : loadPeople();
+    for (const p of _ppl) {
+      for (let mm = 1; mm <= 12; mm++) {
+        const ck = `${p}|${yearStr}-${String(mm).padStart(2, '0')}`;
+        if (!_C.dataCache[ck]) _C.dataCache[ck] = {};
+      }
+    }
+    return rows.length;
   };
 
   // ★ 预加载某个人全年的考勤数据（当前查看的人的年休假已休/超时余额需要跨月数据）
   window.__preloadPersonYear = async function(person, yearStr) {
     const enc = encodeURIComponent;
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/attendance?select=year_month,day_key,status_data&person=eq.${enc(person)}&year_month=gte.${yearStr}-01&year_month=lte.${yearStr}-12`, {
-      headers: { apikey: SUPABASE_KEY, 'Range': '0-99999' }
-    });
-    if (!r.ok) throw new Error(`preload person year: ${r.status}`);
-    const rows = await r.json();
+    const rows = await _sGETAll(
+      `attendance?select=year_month,day_key,status_data&person=eq.${enc(person)}&year_month=gte.${yearStr}-01&year_month=lte.${yearStr}-12`,
+      'year_month,day_key'
+    );
     const byMonth = {};
     for (const row of rows) {
       const ck = `${person}|${row.year_month}`;
@@ -892,6 +920,31 @@ if (_SB) {
     for (const [ck, d] of Object.entries(byMonth)) {
       _C.dataCache[ck] = { ...(_C.dataCache[ck] || {}), ...d };
     }
+  };
+
+  // ★ 导出前自检：把本月数据强制刷成「云端全量」，并报告可能的问题
+  //   返回 { total, peopleCount, empty[], localOnly, localOnlyInfo{} }
+  window.__exportSelfCheck = async function(ymStr) {
+    const rows = await _sGETAll(
+      `attendance?select=person,day_key,status_data&year_month=eq.${ymStr}`,
+      'person,day_key'
+    );
+    const cloud = {};
+    for (const r of rows) { (cloud[r.person] = cloud[r.person] || {})[r.day_key] = r.status_data; }
+    const people = (_C.people && _C.people.length) ? _C.people : loadPeople();
+    // 用云端全量覆盖本月缓存 —— 导出只认云端，不掺本机旧数据
+    for (const p of people) _C.dataCache[`${p}|${ymStr}`] = { ...(cloud[p] || {}) };
+    const empty = people.filter(p => !cloud[p] || Object.keys(cloud[p]).length === 0);
+    // 本机有、云端没有的条目（说明本机有东西没上传）
+    let localOnly = 0; const localOnlyInfo = {};
+    for (const p of people) {
+      let ld = {};
+      try { ld = JSON.parse(localStorage.getItem('att_' + p + '_' + ymStr) || '{}'); } catch(e) {}
+      for (const dk of Object.keys(ld)) {
+        if (!(cloud[p] && dk in cloud[p])) { localOnly++; localOnlyInfo[p] = (localOnlyInfo[p] || 0) + 1; }
+      }
+    }
+    return { total: rows.length, peopleCount: people.length, empty, localOnly, localOnlyInfo };
   };
 
   // ★ 本地补传云端：把 localStorage 里云端缺失/不一致的条目推上去（local 为准）
@@ -3918,8 +3971,40 @@ async function preloadForExport() {
         window.__preloadYearData(currentYear),
         window.__preloadYearData(currentYear - 1)
       ]);
-    } catch (e) { console.error('预加载数据失败', e); }
+      return true;
+    } catch (e) {
+      console.error('预加载数据失败', e);
+      showToast('⚠️ 云端数据预加载失败，导出可能不完整', true);
+      return false;
+    }
   }
+  return false;
+}
+
+// 全员导出前的自检：确保导出表 = 云端全量（= 各人手机填报并已上传的数据）
+// 返回 false 表示管理员选择取消导出
+async function precheckAllExport() {
+  if (typeof window.__exportSelfCheck !== 'function') return true; // 本地模式，跳过
+  let c;
+  try {
+    c = await window.__exportSelfCheck(ym());
+  } catch (e) {
+    console.error('导出前自检失败', e);
+    return confirm('⚠️ 导出前自检失败（网络问题？）\n\n继续导出可能数据不全，仍要导出吗？');
+  }
+  let msg = `导出前自检 · ${currentYear}年${currentMonth}月\n\n`
+          + `云端记录 ${c.total} 条，覆盖 ${c.peopleCount - c.empty.length}/${c.peopleCount} 人`;
+  if (c.empty.length) msg += `\n本月无记录：${c.empty.join('、')}`;
+  if (c.localOnly > 0) {
+    const d = Object.entries(c.localOnlyInfo).map(([k, v]) => `${k} ${v}条`).join('、');
+    msg += `\n\n⚠️ 本机有 ${c.localOnly} 条尚未上传云端（${d}），这些不会进导出表。`;
+    if (confirm(msg + `\n\n点"确定"＝先补传到云端（只补云端缺的，不覆盖已有数据）再导出；\n点"取消"＝按云端现状直接导出。`)) {
+      try { await window.__pushAllLocalToCloud(false); } catch(e) {}
+      try { await window.__exportSelfCheck(ym()); } catch(e) {}
+    }
+    return true;
+  }
+  return confirm(msg + `\n\n导出表将与各人手机填报（已上传云端）的数据一致。确认导出？`);
 }
 
 async function exportCSV() {
@@ -4113,6 +4198,7 @@ async function exportExcel() {
 async function exportAllExcel() {
   if (!isAdmin) return;
   await preloadForExport();
+  if (!(await precheckAllExport())) return;
   const people = sortPeopleById(loadPeople());
   const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
   const weekNames = ['日','一','二','三','四','五','六'];
