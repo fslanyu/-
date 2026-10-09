@@ -994,6 +994,26 @@ if (_SB) {
     return { total, persons: persons.size };
   };
 
+  // ★ 补传「某个人本机所有月份」的考勤到云端（只补云端缺失的，绝不覆盖云端已有数据）
+  //   员工端打开 App / 切换身份时自动调用一次：
+  //   防止某次保存上传失败后，记录只留在手机上没进云端，导出时缺数据
+  window.__pushPersonAllMonths = async function(person, overwrite) {
+    const prefix = 'att_' + person + '_';
+    const months = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.indexOf(prefix) === 0 && /^\d{4}-\d{2}$/.test(k.slice(prefix.length))) {
+        months.push(k.slice(prefix.length));
+      }
+    }
+    months.sort();
+    let total = 0;
+    for (const ms of months) {
+      try { total += await window.__pushLocalToCloud(person, ms, !!overwrite); } catch(e) {}
+    }
+    return total;
+  };
+
   // 延迟安装 init 覆写（等第二个 script 块的 init 定义好）
   setTimeout(() => {
     const _orig_init = init;
@@ -1068,16 +1088,13 @@ if (_SB) {
             await window.__preloadPersonYear(currentPerson, currentYear - 1);
             render();
           } catch(e) {}
-          // ★ 打开页面立即补传「上月 + 当月」本地数据到云端（只补缺失，下月导上月免手动切月份）
+          // ★ 打开页面立即把本机「所有月份」的考勤补传到云端（只补云端缺失的，不覆盖已有）
+          //   原来只补「上月+当月」：员工月末录完再没打开过 App 的话，记录会一直只留在手机上
           try {
-            const _pY = currentMonth === 1 ? currentYear - 1 : currentYear;
-            const _pM = currentMonth === 1 ? 12 : currentMonth - 1;
-            const _pYm = _pY + '-' + String(_pM).padStart(2, '0');
-            for (const _ms of [_pYm, ym]) {
-              window.__pushLocalToCloud(currentPerson, _ms, false)
-                .then(n => { if (n > 0) console.log('☁️ 已补传', currentPerson, _ms, n, '条到云端'); })
-                .catch(() => {});
-            }
+            window.__lastFullPushPerson = currentPerson;
+            window.__pushPersonAllMonths(currentPerson, false)
+              .then(n => { if (n > 0) console.log('☁️ 已补传', currentPerson, '本机所有月份共', n, '条到云端'); })
+              .catch(() => {});
           } catch(e) {}
           // 刷新"超时假已满"的天（全员当日累计，标记到日历上）
           try { refreshFullDays(); } catch(e) {}
@@ -1106,6 +1123,13 @@ if (_SB) {
               changed = true;
             }
             pollOk = true;
+            // ★ 身份切换后，把他本机「所有月份」的考勤补传一次（只补云端缺失的，不覆盖）
+            if (p === currentPerson && window.__lastFullPushPerson !== currentPerson) {
+              window.__lastFullPushPerson = currentPerson;
+              window.__pushPersonAllMonths(currentPerson, false)
+                .then(n => { if (n > 0) console.log('☁️ 已补传', currentPerson, '本机所有月份共', n, '条到云端'); })
+                .catch(() => {});
+            }
             // ★ 本地补传云端（仅当前人员，30秒节流，只补缺失不覆盖——旧数据不会盖新数据）
             //   范围扩展为「上月 + 当月」，下月导上月数据时打开页面即可自动补传上月
             if (p === currentPerson) {
