@@ -555,14 +555,17 @@ if (_SB) {
     if (!r.ok) throw new Error(`POST ${t}: ${r.status}`);
   }
   async function _sPATCH(t, m, b) {
-    await fetch(`${SUPABASE_URL}/rest/v1/${t}?${m}`, {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/${t}?${m}`, {
       method: 'PATCH', headers: { apikey: SUPABASE_KEY,
         'Content-Type': 'application/json', Prefer: 'return=minimal' }, body: JSON.stringify(b) });
+    // ★ 必须检查 r.ok：fetch 对 4xx/5xx 不会抛错，不检查就会把"写入失败"当成成功
+    if (!r.ok) throw new Error(`PATCH ${t}: ${r.status}`);
   }
   async function _sDELETE(t, m) {
-    await fetch(`${SUPABASE_URL}/rest/v1/${t}?${m}`, {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/${t}?${m}`, {
       method: 'DELETE', headers: { apikey: SUPABASE_KEY,
         Prefer: 'return=minimal' } });
+    if (!r.ok) throw new Error(`DELETE ${t}: ${r.status}`);
   }
 
   // ★ 分页取全量：Supabase/PostgREST 单次请求最多返回 1000 行，
@@ -637,45 +640,91 @@ if (_SB) {
       return orig_loadData(person, ym);
     };
     const orig_saveData = saveData;
+
+    // ★ 填报后校验：补传本月云端缺失的条目，并回读云端核对本机数据是否真的上传成功
+    //   失败不再静默 —— 明确提示用户，并允许轮询继续重试
+    window.__verifyMonthSync = async function(person, ym) {
+      const enc = encodeURIComponent;
+      let localData = {};
+      try { localData = JSON.parse(localStorage.getItem('att_' + person + '_' + ym) || '{}'); } catch(e) {}
+      const localKeys = Object.keys(localData);
+      if (!localKeys.length) return { unsynced: 0, checked: 0 };
+      // 1) 补传本月云端缺失的条目（只补缺失，绝不覆盖云端已有数据）
+      try { await window.__pushLocalToCloud(person, ym, false); } catch(e) {}
+      // 2) 回读云端核对
+      const readCloud = async () => {
+        const c = {};
+        const rows = await _sGET(`attendance?select=day_key,status_data&person=eq.${enc(person)}&year_month=eq.${ym}`);
+        for (const r of rows) c[r.day_key] = r.status_data;
+        return c;
+      };
+      let cloud1;
+      try { cloud1 = await readCloud(); }
+      catch(e) { return { unsynced: -1, checked: localKeys.length }; } // 读不通，交给轮询重试
+      let missing = localKeys.filter(dk => !(dk in cloud1));
+      // 3) 还缺 → 再补一次；仍缺就提示（不静默）
+      if (missing.length) {
+        try { await window.__pushLocalToCloud(person, ym, false); } catch(e) {}
+        try {
+          const c2 = await readCloud();
+          missing = localKeys.filter(dk => !(dk in c2));
+        } catch(e) {}
+      }
+      if (missing.length) {
+        console.warn('⚠️ 未同步到云端', person, ym, missing);
+        showToast(`⚠️ 有 ${missing.length} 天未同步到云端，请检查手机网络（稍后会自动重试）`, true);
+        _C.lastPush[`${person}|${ym}`] = 0; // 允许 10 秒轮询立刻再试
+      }
+      return { unsynced: missing.length, checked: localKeys.length };
+    };
+
     saveData = function(person, ym, data) {
       const ck = `${person}|${ym}`;
       const oldData = _C.dataCache[ck] || {};
       _C.dataCache[ck] = {...data};
       const enc = encodeURIComponent;
+      // ★ 先写本机 localStorage（后面的补传/校验要读它）
+      orig_saveData(person, ym, data);
+      const _writes = [];
       for (const [dk, sd] of Object.entries(data)) {
-        (async () => {
+        _writes.push((async () => {
           for (let retry = 0; retry < 3; retry++) {
             try {
               const m = `person=eq.${enc(person)}&year_month=eq.${ym}&day_key=eq.${enc(dk)}`;
               const ex = await _sGET(`attendance?select=id&${m}`);
               ex.length ? await _sPATCH('attendance', `id=eq.${ex[0].id}`, {status_data: sd})
                         : await _sPOST('attendance', {person, year_month: ym, day_key: dk, status_data: sd});
-              break; // 成功
+              return true; // 成功
             } catch(e) {
               console.error('saveData retry ' + (retry+1) + ':', e);
               if (retry < 2) await _sleep(1000 * (retry + 1));
             }
           }
-        })();
+          return false;
+        })());
       }
       // DELETE keys removed from data (e.g. admin clears a day, employee deletes within 3-day window)
       for (const dk of Object.keys(oldData)) {
         if (!(dk in data)) {
-          (async () => {
+          _writes.push((async () => {
             for (let retry = 0; retry < 3; retry++) {
               try {
                 const m = `person=eq.${enc(person)}&year_month=eq.${ym}&day_key=eq.${enc(dk)}`;
                 await _sDELETE('attendance', m);
-                break;
+                return true;
               } catch(e) {
                 console.error('saveData DELETE retry ' + (retry+1) + ':', e);
                 if (retry < 2) await _sleep(1000 * (retry + 1));
               }
             }
-          })();
+            return false;
+          })());
         }
       }
-      orig_saveData(person, ym, data);
+      // ★ 本次填报的写入全部结束后，补传本月缺漏 + 回读校验（顺序执行，避免重复提交）
+      Promise.all(_writes)
+        .then(() => window.__verifyMonthSync(person, ym))
+        .catch(() => {});
     };
 
     const orig_loadNotes = loadNotes;
