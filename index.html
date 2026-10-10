@@ -1222,12 +1222,19 @@ if (_SB) {
             await window.__preloadPersonYear(currentPerson, currentYear - 1);
             render();
           } catch(e) {}
-          // ★ 打开页面立即把本机「所有月份」的考勤补传到云端（只补云端缺失的，不覆盖已有）
-          //   原来只补「上月+当月」：员工月末录完再没打开过 App 的话，记录会一直只留在手机上
+          // ★ 打开页面立即把本机「所有人员 · 所有月份」的考勤补传到云端（只补云端缺失的，不覆盖已有）
+          //   原来只推「当前身份 + 上月/当月」：①员工月末录完再没打开过 App，记录会一直只留在手机上
+          //   ②借别人手机代填的，那些人的数据也留在这台手机上。改成推本机全部人员即可自动补上。
           try {
             window.__lastFullPushPerson = currentPerson;
-            window.__pushPersonAllMonths(currentPerson, false)
-              .then(n => { if (n > 0) console.log('☁️ 已补传', currentPerson, '本机所有月份共', n, '条到云端'); })
+            const _pushAll = (typeof window.__pushAllLocalToCloud === 'function')
+              ? window.__pushAllLocalToCloud(false)
+              : window.__pushPersonAllMonths(currentPerson, false);
+            _pushAll
+              .then(r => {
+                const n = (typeof r === 'number') ? r : ((r && r.total) || 0);
+                if (n > 0) console.log('☁️ 已补传本机全部人员数据共', n, '条到云端');
+              })
               .catch(() => {});
           } catch(e) {}
           // 刷新"超时假已满"的天（全员当日累计，标记到日历上）
