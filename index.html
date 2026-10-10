@@ -610,6 +610,31 @@ if (_SB) {
     });
   }
 
+  // ★ 删除墓碑（防回灌）：某人某天被删除后，云端记一条标记，
+  //   防止员工端"自动补传"把已删的旧数据又 POST 回来（存 config 表 key=deleted_days）
+  function _tombs() {
+    try { return JSON.parse(_C.configMap["deleted_days"] || "{}"); } catch(e) { return {}; }
+  }
+  function _tombIncludes(person, ym, dk) {
+    const a = _tombs()[person + "|" + ym];
+    return Array.isArray(a) && a.indexOf(dk) >= 0;
+  }
+  function _tombSave(t) {
+    const sv = JSON.stringify(t);
+    _C.configMap["deleted_days"] = sv;
+    _sUpsertConfig("deleted_days", sv, "删除墓碑").catch(() => {});
+  }
+  window.__tombAdd = function(person, ym, dk) {
+    const t = _tombs(), k = person + "|" + ym, a = t[k] || [];
+    if (a.indexOf(dk) < 0) { a.push(dk); t[k] = a; _tombSave(t); }
+  };
+  window.__tombRemove = function(person, ym, dk) {
+    const t = _tombs(), k = person + "|" + ym, a = t[k];
+    if (!a) return;
+    const i = a.indexOf(dk);
+    if (i >= 0) { a.splice(i, 1); if (a.length) t[k] = a; else delete t[k]; _tombSave(t); }
+  };
+
   // 从 Supabase 加载（带重试：部分网络首次连不上，最多试3次）
   function _sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
   async function _loadAll(retries = 3) {
@@ -666,7 +691,7 @@ if (_SB) {
         try {
           const enc = encodeURIComponent;
           const rows = await _sGET(`attendance?select=day_key,status_data&person=eq.${enc(person)}&year_month=eq.${ym}`);
-          const d = {}; for (const r of rows) d[r.day_key] = r.status_data;
+          const d = {}; for (const r of rows) if (!_tombIncludes(person, ym, r.day_key)) d[r.day_key] = r.status_data;
           _C.dataCache[ck] = d;
           if ((currentPerson === person || viewTarget === person) && currentYear+'-'+String(currentMonth).padStart(2,'0') === ym) render();
         } catch(e) { /* 静默失败，用 localStorage 兜底 */ }
@@ -695,13 +720,13 @@ if (_SB) {
       let cloud1;
       try { cloud1 = await readCloud(); }
       catch(e) { return { unsynced: -1, checked: localKeys.length }; } // 读不通，交给轮询重试
-      let missing = localKeys.filter(dk => !(dk in cloud1));
+      let missing = localKeys.filter(dk => !(dk in cloud1) && !_tombIncludes(person, ym, dk));
       // 3) 还缺 → 再补一次；仍缺就提示（不静默）
       if (missing.length) {
         try { await window.__pushLocalToCloud(person, ym, false); } catch(e) {}
         try {
           const c2 = await readCloud();
-          missing = localKeys.filter(dk => !(dk in c2));
+          missing = localKeys.filter(dk => !(dk in c2) && !_tombIncludes(person, ym, dk));
         } catch(e) {}
       }
       if (missing.length) {
@@ -721,6 +746,7 @@ if (_SB) {
       orig_saveData(person, ym, data);
       const _writes = [];
       for (const [dk, sd] of Object.entries(data)) {
+        if (_tombIncludes(person, ym, dk)) window.__tombRemove(person, ym, dk); // ★ 重新登记该天 -> 撤销墓碑
         _writes.push((async () => {
           for (let retry = 0; retry < 3; retry++) {
             try {
@@ -740,6 +766,7 @@ if (_SB) {
       // DELETE keys removed from data (e.g. admin clears a day, employee deletes within 3-day window)
       for (const dk of Object.keys(oldData)) {
         if (!(dk in data)) {
+          window.__tombAdd(person, ym, dk); // ★ 记墓碑：防止员工端把已删的这天补传回来
           _writes.push((async () => {
             for (let retry = 0; retry < 3; retry++) {
               try {
@@ -958,6 +985,7 @@ if (_SB) {
     );
     const byPerson = {};
     for (const row of rows) {
+      if (_tombIncludes(row.person, ymStr, row.day_key)) continue;
       if (!byPerson[row.person]) byPerson[row.person] = {};
       byPerson[row.person][row.day_key] = row.status_data;
     }
@@ -977,6 +1005,7 @@ if (_SB) {
     );
     const byKey = {};
     for (const row of rows) {
+      if (_tombIncludes(row.person, row.year_month, row.day_key)) continue;
       const ck = `${row.person}|${row.year_month}`;
       if (!byKey[ck]) byKey[ck] = {};
       byKey[ck][row.day_key] = row.status_data;
@@ -1005,6 +1034,7 @@ if (_SB) {
     );
     const byMonth = {};
     for (const row of rows) {
+      if (_tombIncludes(person, row.year_month, row.day_key)) continue;
       const ck = `${person}|${row.year_month}`;
       if (!byMonth[ck]) byMonth[ck] = {};
       byMonth[ck][row.day_key] = row.status_data;
@@ -1047,6 +1077,11 @@ if (_SB) {
     let localData = {};
     try { localData = JSON.parse(localStorage.getItem('att_' + person + '_' + ym) || '{}'); } catch(e) { return 0; }
     if (Object.keys(localData).length === 0) return 0;
+    // ★ 补传前先刷新"删除墓碑"：防止本机 configMap 里的旧墓碑过期，把已删的日期又推回云端
+    try {
+      const _tr = await _sGET('config?select=value&key=eq.deleted_days');
+      if (_tr.length) _C.configMap['deleted_days'] = _tr[0].value;
+    } catch(e) {}
     let cloud = {};
     try {
       const rows = await _sGET(`attendance?select=day_key,status_data&person=eq.${enc(person)}&year_month=eq.${ym}`);
@@ -1054,6 +1089,7 @@ if (_SB) {
     } catch(e) { return 0; }
     let pushed = 0;
     for (const [dk, sd] of Object.entries(localData)) {
+      if (_tombIncludes(person, ym, dk)) continue;       // ★ 已删除：不再补传（防回灌）
       if (cloud[dk] === sd) continue;                    // 一致，跳过
       if (!(dk in cloud)) {                              // 云端缺失 → POST 补齐
         try { await _sPOST('attendance', {person, year_month: ym, day_key: dk, status_data: sd}); pushed++; }
@@ -1065,7 +1101,11 @@ if (_SB) {
       }
       // overwrite=false 且云端不一致：跳过，避免旧数据覆盖新数据
     }
-    if (pushed > 0) _C.dataCache[`${person}|${ym}`] = { ...(_C.dataCache[`${person}|${ym}`] || {}), ...localData };
+    if (pushed > 0) {
+      const _m = { ...(_C.dataCache[`${person}|${ym}`] || {}), ...localData };
+      for (const _dk2 of Object.keys(_m)) if (_tombIncludes(person, ym, _dk2)) delete _m[_dk2];
+      _C.dataCache[`${person}|${ym}`] = _m;
+    }
     return pushed;
   };
 
@@ -1154,11 +1194,13 @@ if (_SB) {
           const lsKey = 'att_' + currentPerson + '_' + ym;
           try {
             const rows = await _sGET(`attendance?select=day_key,status_data&person=eq.${enc(currentPerson)}&year_month=eq.${ym}`);
-            const d = {}; for (const r of rows) d[r.day_key] = r.status_data;
+            const d = {}; for (const r of rows) if (!_tombIncludes(currentPerson, ym, r.day_key)) d[r.day_key] = r.status_data;
             // ★ 合并：云端数据优先，但保留 localStorage 独有的条目
             let localData = {};
             try { localData = JSON.parse(localStorage.getItem(lsKey) || '{}'); } catch(e) {}
             const merged = {...localData, ...d};  // cloud wins
+            const _tk2 = _tombs()[currentPerson + '|' + ym] || [];
+            for (const _dk3 of _tk2) delete merged[_dk3];
             if (Object.keys(d).length > 0) localStorage.setItem(lsKey, JSON.stringify(merged));
             _C.dataCache[`${currentPerson}|${ym}`] = merged;
             render();
@@ -1209,9 +1251,13 @@ if (_SB) {
             let localData = {};
             try { localData = JSON.parse(localStorage.getItem('att_' + p + '_' + ym) || '{}'); } catch(e) {}
             const merged = {...localData, ...nd};
+            // ★ 删除墓碑：本机也下架已删除的日期，否则会被"补传"再次回灌
+            const _tk = _tombs()[p + '|' + ym] || [];
+            for (const _dk of _tk) delete merged[_dk];
             if (JSON.stringify(merged) !== JSON.stringify(_C.dataCache[ck] || {})) {
               _C.dataCache[ck] = merged;
               if (Object.keys(merged).length > 0) localStorage.setItem('att_' + p + '_' + ym, JSON.stringify(merged));
+              else localStorage.removeItem('att_' + p + '_' + ym);
               changed = true;
             }
             pollOk = true;
