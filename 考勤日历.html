@@ -4469,18 +4469,20 @@ function exportFullBackup() {
   showToast('✅ 数据备份已下载');
 }
 
-// 补传本地考勤数据到云端（管理员手动触发，local 为准覆盖云端）
+// 补传本地考勤数据到云端（管理员手动触发：只补云端缺的，绝不覆盖云端已有数据）
 async function syncLocalToCloud() {
   if (!isAdmin) return;
   if (typeof window.__pushAllLocalToCloud !== 'function') {
     showToast('⚠️ 当前非云端模式，无需补传', true);
     return;
   }
-  if (!confirm('将把本机 localStorage 里的考勤数据补传到云端。\n\n本地为准：云端缺失的补齐，云端不一致的以本地覆盖。\n\n确认继续？')) return;
+  if (!confirm('将把本机存储里的考勤数据补传到云端。\n\n只补云端缺失的条目，绝不覆盖云端已有数据（不会冲掉别人刚填的新值）。\n\n确认继续？')) return;
   showToast('☁️ 正在补传本地数据到云端...');
   try {
-    const r = await window.__pushAllLocalToCloud(true);
-    showToast(`✅ 补传完成：${r.persons} 人，共 ${r.total} 条`);
+    const r = await window.__pushAllLocalToCloud(false);
+    showToast(r.total > 0
+      ? `✅ 补传完成：${r.persons} 人，补齐 ${r.total} 条`
+      : `✅ 补传完成：本机没有云端缺的数据（0 条）`);
     render();
   } catch(e) {
     showToast('❌ 补传失败：' + (e.message || e), true);
