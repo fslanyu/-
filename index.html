@@ -4610,7 +4610,7 @@ const APP_VERSION = '2026.06.17-destroy';
     return;
   }
   if (!('serviceWorker' in navigator)) return;
-  navigator.serviceWorker.register('/sw.js').then(r => {
+  navigator.serviceWorker.register('./sw.js').then(r => {
     console.log('SW registered (自毁版)');
     // 监听 SW 自毁完成
     const checkUnregistered = setInterval(() => {
