@@ -2339,6 +2339,13 @@ function closeOTManager() {
   document.getElementById('otManagerOverlay')?.remove();
 }
 
+// ★ 身份就绪守卫：人员列表未加载成功时（身份是"本人"或空）禁止填报。
+//   原因：页面打开时若人员列表取不到，身份会兜底成"本人"，此时填报会把数据存到"本人"名下，
+//   云端就出现名单外的脏数据（云端 2026-10-06「本人 / 班次 早班」那条就是这么来的）。
+function identityNotReady() {
+  return !currentPerson || currentPerson === '本人';
+}
+
 // ── Status Picker (non-admin: 休超时假/缺勤/迟到/休假; admin: all) ──
 function showStatusPicker(key, isFuture, currentRaw) {
   const overlay = document.createElement('div');
@@ -3642,7 +3649,9 @@ function renderDaysGrid() {
 
       if (isAdmin) {
         cell.addEventListener('click', () => {
-          if (hasAny) {
+          if (identityNotReady()) {
+            showToast('⚠️ 人员列表未加载，暂时无法填报。请检查网络后重新打开页面', true);
+          } else if (hasAny) {
             showMultiStatusEditor(key, d);
           } else {
             showStatusPicker(key, key > todayStr);
@@ -3655,7 +3664,9 @@ function renderDaysGrid() {
       } else {
         // 自己的日历，可编辑（限近3天）
         cell.addEventListener('click', () => {
-          if (isPersonLocked(currentPerson) && !unlockedPersons.has(currentPerson)) {
+          if (identityNotReady()) {
+            showToast('⚠️ 人员列表未加载，暂时无法填报。请检查网络后重新打开页面', true);
+          } else if (isPersonLocked(currentPerson) && !unlockedPersons.has(currentPerson)) {
             showToast('🔒 此身份已锁定，请先输入密码解锁', true);
           } else if (key < cutoffStr) {
             showToast('⏳ 只能修改近3天数据', true);
@@ -4045,6 +4056,10 @@ function clearMonth() {
 
 function batchSet(status) {
   if (!isAdmin) return;
+  if (identityNotReady()) {
+    showToast('⚠️ 人员列表未加载，暂时无法批量填报。请检查网络后重新打开页面', true);
+    return;
+  }
   if (!confirm(`确认将「${currentPerson}」${currentYear}年${currentMonth}月全部设为「${STATUS[status].label}」？`)) return;
   const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
   const data = {};
