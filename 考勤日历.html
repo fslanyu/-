@@ -1338,10 +1338,10 @@ const PRESENT_HOURS = ['0.5', '1', '1.5', '2', '2.5', '3', '3.5', '4', '4.5', '5
 const TRIP_HOURS = ['0.5', '1', '1.5', '2', '2.5', '3', '3.5', '4', '4.5', '5', '5.5', '6', '6.5', '7'];
 const LEAVE_HOURS = ['半天4h', '半天3h', '全天'];
 const ANNUAL_LEAVE_HOURS = ['半天4h', '半天3h', '全天']; // 年休假专用：半天4h+半天3h=全天7h
-const LEAVE_SUBTYPES = ['年休假', '婚假', '陪产假', '工伤假', '丧假', '育儿假', '护理假'];
+const LEAVE_SUBTYPES = ['年休假', '婚假', '陪产假', '工伤假', '丧假', '育儿假', '护理假', '补休加班'];
 const OVERTIME_DAY_HOURS = ['半天4h', '半天3h', '全天'];
-// 超时时长（0.25起，15分钟间隔，最大4h）
-const OVERTIME_HOURS = ['0.25', '0.5', '0.75', '1', '1.25', '1.5', '1.75', '2', '2.25', '2.5', '2.75', '3', '3.25', '3.5', '3.75', '4'];
+// 超时时长（5分钟间隔，最大4h）
+const OVERTIME_HOURS = ['0.0833', '0.1667', '0.25', '0.3333', '0.4167', '0.5', '0.5833', '0.6667', '0.75', '0.8333', '0.9167', '1', '1.0833', '1.1667', '1.25', '1.3333', '1.4167', '1.5', '1.5833', '1.6667', '1.75', '1.8333', '1.9167', '2', '2.0833', '2.1667', '2.25', '2.3333', '2.4167', '2.5', '2.5833', '2.6667', '2.75', '2.8333', '2.9167', '3', '3.0833', '3.1667', '3.25', '3.3333', '3.4167', '3.5', '3.5833', '3.6667', '3.75', '3.8333', '3.9167', '4'];
 // 超时时长显示：半时按小时(0.5h/1.5h/2.5h/3.5h)，整时按小时，其余15/45分用分钟(15m/45m/1h15m…)；负数(透支)加负号
 function overtimeLabel(h) {
   const num = parseFloat(h);
@@ -2909,7 +2909,7 @@ function confirmSingleQty(key, statusType) {
 }
 
 // ── 班次选择器 ──
-const SHIFT_TYPES = ['早班', '晚班', '出院班', '直落'];
+const SHIFT_TYPES = ['早班', '晚班', '出院班', '直落', '正常班'];
 function showShiftPicker(key) {
   const overlay = document.createElement('div');
   overlay.className = 'sheet-overlay';
@@ -3861,7 +3861,7 @@ function renderStats() {
     let overtimeDayHalf = 0;
     let manualSheets = 0, manualDoses = 0;
     let dischargeCount = 0, prepMedCount = 0;
-    let shiftCounts = {早班:0, 晚班:0, 出院班:0, 直落:0};
+    let shiftCounts = {早班:0, 晚班:0, 出院班:0, 直落:0, 正常班:0};
     let marked = 0;
     for (const [_,v] of Object.entries(data)) {
       const statuses = parseStatuses(v);
@@ -3949,7 +3949,7 @@ function renderStats() {
       ${manualSheets > 0 || manualDoses > 0 ? `<div class="stat-item">手工单 <b>${manualSheets}</b>张${manualDoses > 0 ? ` <b>${manualDoses}</b>剂` : ''}</div>` : `<div class="stat-item">手工单 <b>0</b>张</div>`}
       ${dischargeCount > 0 ? `<div class="stat-item">发出院 <b>${dischargeCount}</b>个</div>` : `<div class="stat-item">发出院 <b>0</b>个</div>`}
       ${prepMedCount > 0 ? `<div class="stat-item">挑药 <b>${prepMedCount}</b>剂</div>` : `<div class="stat-item">挑药 <b>0</b>剂</div>`}
-      ${c.shift > 0 ? `<div class="stat-item">班次 早班<b>${shiftCounts.早班||0}</b> 晚班<b>${shiftCounts.晚班||0}</b> 出院班<b>${shiftCounts.出院班||0}</b> 直落<b>${shiftCounts.直落||0}</b></div>` : `<div class="stat-item">班次 <b>0</b></div>`}
+      ${c.shift > 0 ? `<div class="stat-item">班次 早班<b>${shiftCounts.早班||0}</b> 晚班<b>${shiftCounts.晚班||0}</b> 出院班<b>${shiftCounts.出院班||0}</b> 直落<b>${shiftCounts.直落||0}</b> 正常班<b>${shiftCounts.正常班||0}</b></div>` : `<div class="stat-item">班次 <b>0</b></div>`}
       <div class="stat-item">总剂数 <b>${(manualDoses + dischargeCount*0.6 + prepMedCount*1.5 + (shiftCounts.早班||0)*100 + (shiftCounts.晚班||0)*300 + (shiftCounts.出院班||0)*50).toFixed(1)}</b>剂</div>
       <div class="stat-item">总条目数 <b>${((manualDoses + dischargeCount*0.6 + prepMedCount*1.5 + (shiftCounts.早班||0)*100 + (shiftCounts.晚班||0)*300 + (shiftCounts.出院班||0)*50) * 13).toFixed(1)}</b>条</div>
     `;
@@ -4053,7 +4053,7 @@ function calcSummary(person, ym) {
   let manualSheets = 0, manualDoses = 0, shiftCount = 0;
   let dischargeCount = 0, prepMedCount = 0;
   let tripHours = 0;
-  let shiftCounts = {早班:0, 晚班:0, 出院班:0, 直落:0};
+  let shiftCounts = {早班:0, 晚班:0, 出院班:0, 直落:0, 正常班:0};
   for (const [_, v] of Object.entries(data)) {
     const statuses = parseStatuses(v);
     if (statuses.length === 0) continue;
@@ -4204,6 +4204,7 @@ async function exportCSV() {
   csv += `  晚班,,${s.shiftCounts.晚班||0}次,\n`;
   csv += `  出院班,,${s.shiftCounts.出院班||0}次,\n`;
   csv += `  直落,,${s.shiftCounts.直落||0}次,\n`;
+  csv += `  正常班,,${s.shiftCounts.正常班||0}次,\n`;
   downloadCSV(csv, `考勤_${currentPerson}_${currentYear}年${currentMonth}月.csv`);
 }
 
@@ -4271,6 +4272,8 @@ async function exportAllCSV() {
   for (const p of people) { const s = calcSummary(p, ym()); csv += `,${s.shiftCounts.出院班||0}`; }
   csv += '\n';
   csv += `  直落,,`;
+  csv += `  正常班,,`;
+  for (const p of people) { const s = calcSummary(p, ym()); csv += `,${s.shiftCounts.正常班||0}`; }
   for (const p of people) { const s = calcSummary(p, ym()); csv += `,${s.shiftCounts.直落||0}`; }
   csv += '\n';
   csv += `总剂数,,`;
@@ -4340,6 +4343,7 @@ async function exportExcel() {
   allRows.push(['  晚班', '次', s.shiftCounts.晚班||0, '']);
   allRows.push(['  出院班', '次', s.shiftCounts.出院班||0, '']);
   allRows.push(['  直落', '次', s.shiftCounts.直落||0, '']);
+  allRows.push(['  正常班', '次', s.shiftCounts.正常班||0, '']);
   allRows.push(['总剂数', '剂', s.totalDoses||0, '']);
   allRows.push(['总条目数', '条', s.totalItems||0, '']);
   const otb = calcOvertimeBalance(currentPerson, ym());
@@ -4381,7 +4385,7 @@ async function exportAllExcel() {
   for (const st of LEAVE_SUBTYPES) { if (st !== '年休假') header.push(st + '(天)'); }
   header.push('超时(h)', '公差(h)', '加班(天)',
     '手工单(张)', '手工单(剂)', '发出院(个)', '挑药(剂)',
-    '班次(次)', '早班', '晚班', '出院班', '直落', '总剂数', '总条目数',
+    '班次(次)', '早班', '晚班', '出院班', '直落', '正常班', '总剂数', '总条目数',
     '超时余额(h)', '年休假余额(天)');
   allRows.push(header);
 
@@ -4400,7 +4404,7 @@ async function exportAllExcel() {
     row.push(s.overtimeH, s.tripHours||0, s.overtimeDayDays,
       s.manualSheets||0, s.manualDoses||0, s.dischargeCount||0, s.prepMedCount||0,
       s.shiftCount||0, s.shiftCounts.早班||0, s.shiftCounts.晚班||0,
-      s.shiftCounts.出院班||0, s.shiftCounts.直落||0,
+      s.shiftCounts.出院班||0, s.shiftCounts.直落||0, s.shiftCounts.正常班||0,
       s.totalDoses||0, s.totalItems||0,
       calcOvertimeBalance(p, ym()).carry,
       getPersonLeaveQuota(p).remaining);
@@ -4413,11 +4417,11 @@ async function exportAllExcel() {
   // Column widths
   const colWidths = [{wch: 8}, {wch: 6}];
   for (let d = 1; d <= daysInMonth; d++) colWidths.push({wch: 8});
-  for (let i = 0; i < 22; i++) colWidths.push({wch: 10});
+  for (let i = 0; i < 26; i++) colWidths.push({wch: 10});
   ws['!cols'] = colWidths;
 
   // Merge title row
-  const totalCols = 2 + daysInMonth + 24;
+  const totalCols = 2 + daysInMonth + 26;
   ws['!merges'] = [{s: {r: 0, c: 0}, e: {r: 0, c: totalCols - 1}}];
 
   XLSX.utils.book_append_sheet(wb, ws, '全员考勤');
