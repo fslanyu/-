@@ -572,12 +572,24 @@ if (_SB) {
     }, 20000);
   }
   // 所有云端请求统一带 12 秒超时：弱网不会一直卡在"连接中"，也不会永远报红
-  async function _sbFetch(url, opts, ms) {
+  async function _sbFetchOnce(url, opts, ms) {
     if (typeof AbortController === 'undefined') return fetch(url, opts); // 老内核兜底
     const ac = new AbortController();
     const t = setTimeout(function () { try { ac.abort(); } catch(e) {} }, ms || 12000);
     try { return await fetch(url, Object.assign({}, opts, { signal: ac.signal })); }
     finally { clearTimeout(t); }
+  }
+  // ★ 个别手机浏览器/微信内嵌浏览器会拦掉「带自定义头(apikey)」的跨域请求（浏览器报 Failed to fetch，
+  //   页面上就显示"网络不通"）。这种情况把 apikey 放到查询串重试一次：简单请求、不触发预检 OPTIONS，通常就通了。
+  async function _sbFetch(url, opts, ms) {
+    try { return await _sbFetchOnce(url, opts, ms); }
+    catch (e) {
+      const h = opts && opts.headers;
+      if (!h || !h.apikey || (e && e.name === 'AbortError')) throw e;
+      const h2 = Object.assign({}, h); delete h2.apikey;
+      const u2 = url + (url.indexOf('?') >= 0 ? '&' : '?') + 'apikey=' + encodeURIComponent(h.apikey);
+      return await _sbFetchOnce(u2, Object.assign({}, opts, { headers: h2 }), ms || 12000);
+    }
   }
 
   async function _sGET(p) {
@@ -712,14 +724,14 @@ if (_SB) {
         // POST 新增的人员
         for (const n of now) {
           if (!old.has(n)) await _sWriteRetry('新增人员 ' + n, async () => {
-            const r = await fetch(`${SUPABASE_URL}/rest/v1/people`, {method:'POST', headers:{apikey:SUPABASE_KEY,'Content-Type':'application/json',Prefer:'return=minimal'}, body:JSON.stringify({name:n})});
+            const r = await _sbFetch(`${SUPABASE_URL}/rest/v1/people`, {method:'POST', headers:{apikey:SUPABASE_KEY,'Content-Type':'application/json',Prefer:'return=minimal'}, body:JSON.stringify({name:n})});
             if (!r.ok && r.status !== 409) throw new Error('POST people: ' + r.status);
           });
         }
         // DELETE 被移除的人员
         for (const n of old) {
           if (!now.has(n)) await _sWriteRetry('删除人员 ' + n, async () => {
-            const r = await fetch(`${SUPABASE_URL}/rest/v1/people?name=eq.${enc(n)}`, {method:'DELETE', headers:{apikey:SUPABASE_KEY,Prefer:'return=minimal'}});
+            const r = await _sbFetch(`${SUPABASE_URL}/rest/v1/people?name=eq.${enc(n)}`, {method:'DELETE', headers:{apikey:SUPABASE_KEY,Prefer:'return=minimal'}});
             if (!r.ok) throw new Error('DELETE people: ' + r.status);
           });
         }
@@ -1629,7 +1641,7 @@ function ensureOTHistory(person, year) {
 }
 
 // ── 云端同步状态（页头一行小字：☁ 已同步 / 未连接；未连接可点一下重试）──
-const APP_VER = '2026-10-21e';
+const APP_VER = '2026-10-21f';
 const APP_START = Date.now();
 function updateSyncBanner() {
   try {
