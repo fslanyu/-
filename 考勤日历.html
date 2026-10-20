@@ -543,10 +543,21 @@ const _SB = !!(SUPABASE_URL && SUPABASE_KEY && !SUPABASE_URL.includes('xxxx'));
 if (_SB) {
   const _C = { people: null, pinMap: {}, configMap: {}, dataCache: {}, noteCache: {}, lastPush: {} };
 
+  // ★ 云端连通状态：任何一次读写失败都记下来，界面据此提示"数据没同步"
+  window.__cloud = { ok: null, err: '', at: 0 };
+  function _markCloud(ok, err) {
+    window.__cloud = { ok: ok, err: ok ? '' : String(err && err.message || err || ''), at: Date.now() };
+    try { updateSyncBanner(); } catch(e) {}
+  }
+
   async function _sGET(p) {
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/${p}`, {
-      headers: { apikey: SUPABASE_KEY }
-    }); if (!r.ok) throw new Error(`${p}: ${r.status}`); return r.json();
+    let r;
+    try { r = await fetch(`${SUPABASE_URL}/rest/v1/${p}`, { headers: { apikey: SUPABASE_KEY } }); }
+    catch (e) { _markCloud(false, e); throw e; }
+    if (!r.ok) { const e = new Error(`${p}: ${r.status}`); _markCloud(false, e); throw e; }
+    const j = await r.json();
+    _markCloud(true);
+    return j;
   }
   async function _sPOST(t, b) {
     const r = await fetch(`${SUPABASE_URL}/rest/v1/${t}`, {
@@ -926,7 +937,11 @@ if (_SB) {
     loadOvertimeCarryover = function() {
       try {
         const cloud = JSON.parse(_C.configMap['overtime_carryover'] || '{}');
-        if (Object.keys(cloud).length > 0) return cloud;
+        if (Object.keys(cloud).length > 0) {
+          // ★ 云端读到就缓存到本机：下次云端读不到（弱网/缓存旧页）时仍用最后一次正确值，不会变成 0 → 负数
+          try { orig_saveOTC(cloud); } catch(e) {}
+          return cloud;
+        }
         return orig_loadOTC();
       } catch { return orig_loadOTC(); }
     };
@@ -942,7 +957,11 @@ if (_SB) {
     loadLeaveQuotas = function() {
       try {
         const cloud = JSON.parse(_C.configMap['leave_quotas'] || '{}');
-        if (Object.keys(cloud).length > 0) return cloud;
+        if (Object.keys(cloud).length > 0) {
+          // ★ 同上：年休假额度也缓存到本机，避免手机端显示"总额0天"
+          try { orig_saveLQ(cloud); } catch(e) {}
+          return cloud;
+        }
         return orig_loadLQ();
       } catch { return orig_loadLQ(); }
     };
@@ -956,6 +975,34 @@ if (_SB) {
     if (_C.people && _C.people.length) {
       orig_savePeople([..._C.people]);
     }
+
+    // ★ 云端配置（超时结转底数/年休假额度）就绪检查 + 自动重试
+    //   手机弱网或缓存旧页时配置可能读不到，界面要显示"正在同步"而不是 0
+    let _cfgP = null, _cfgTimer = null;
+    window.__configReady = function() { return Object.keys(_C.configMap).length > 0; };
+    window.__configEnsure = function() {
+      if (Object.keys(_C.configMap).length > 0) return Promise.resolve(true);
+      if (_cfgP) return _cfgP;
+      _cfgP = _loadAll(1).then(function () {
+        _cfgP = null; return Object.keys(_C.configMap).length > 0;
+      }).catch(function () { _cfgP = null; return false; });
+      return _cfgP;
+    };
+    window.__startConfigRetry = function() {
+      if (_cfgTimer || Object.keys(_C.configMap).length > 0) return;
+      _cfgTimer = setInterval(async function () {
+        if (Object.keys(_C.configMap).length > 0) {
+          clearInterval(_cfgTimer); _cfgTimer = null;
+          try { render(); } catch(e) {}
+          return;
+        }
+        try { await window.__configEnsure(); } catch(e) {}
+        if (Object.keys(_C.configMap).length > 0) {
+          clearInterval(_cfgTimer); _cfgTimer = null;
+          try { render(); } catch(e) {}
+        }
+      }, 8000);
+    };
 
     console.log('✅ Supabase 云模式已启用');
   }
@@ -1041,7 +1088,19 @@ if (_SB) {
     }
     for (const [ck, d] of Object.entries(byMonth)) {
       _C.dataCache[ck] = { ...(_C.dataCache[ck] || {}), ...d };
+      // ★ 把云端历史镜像到本机 localStorage：手机下次冷启动/断网也能算对超时结转和年休假已休
+      try {
+        const _i = ck.lastIndexOf('|');
+        const _p = ck.slice(0, _i), _m = ck.slice(_i + 1), _lk = 'att_' + _p + '_' + _m;
+        let _loc = {};
+        try { _loc = JSON.parse(localStorage.getItem(_lk) || '{}'); } catch(e) {}
+        const _mg = { ..._loc, ...d };          // 云端优先，保留本机独有（未补传的）
+        for (const _dk of (_tombs()[_p + '|' + _m] || [])) delete _mg[_dk];
+        if (Object.keys(_mg).length) localStorage.setItem(_lk, JSON.stringify(_mg));
+      } catch(e) {}
     }
+    // ★ 标记「这年的历史已镜像到本机」，断网冷启动时可先用本机数据算出正确余额
+    try { localStorage.setItem('att_hist_' + person + '_' + yearStr, '1'); } catch(e) {}
   };
 
   // ★ 导出前自检：把本月数据强制刷成「云端全量」，并报告可能的问题
@@ -1167,6 +1226,8 @@ if (_SB) {
         catch(e) { console.error('Supabase load retry '+(i+1)+':', e); if (i < 2) await _sleep(1500*(i+1)); }
       }
       let degraded = !_C.people || !_C.people.length;
+      // ★ 配置（超时结转底数/年休假额度）没读到就每 8 秒自动重试，读到后自动重画
+      try { if (window.__startConfigRetry) window.__startConfigRetry(); } catch(e) {}
 
       if (loaded && !degraded) {
         // 人员列表加载成功，同步到 localStorage（离线兜底）
@@ -1521,14 +1582,45 @@ function ensureOTHistory(person, year) {
   return _otHistP[key];
 }
 
+// ── 云端未同步提示条（只在真有问题时出现，正常时完全不占界面）──
+const APP_VER = '2026-10-20a';
+function updateSyncBanner() {
+  try {
+    let el = document.getElementById('syncBanner');
+    const cloudErr = !!(window.__cloud && window.__cloud.ok === false);
+    const cfgMissing = !!(window.__configReady && !window.__configReady());
+    if (!(cloudErr || cfgMissing)) { if (el && el.parentNode) el.parentNode.removeChild(el); return; }
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'syncBanner';
+      el.style.cssText = 'position:fixed;left:8px;right:8px;bottom:64px;z-index:9999;background:#d14343;color:#fff;font-size:12px;line-height:1.6;padding:8px 12px;border-radius:8px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,.25);';
+      document.body.appendChild(el);
+    }
+    el.innerHTML = '⚠ 云端数据没同步上，余额/年休假可能不准 '
+      + '<span style="text-decoration:underline;cursor:pointer;" onclick="forceRefreshApp()">点这里刷新</span>'
+      + '<span style="opacity:.7;"> v' + APP_VER + '</span>';
+  } catch(e) {}
+}
+window.forceRefreshApp = function () {
+  try { location.replace(location.pathname + '?r=' + Date.now()); }
+  catch(e) { location.reload(); }
+};
+
+// 本机是否已镜像过这个人的整年历史（断网/弱网时也能先算出正确余额）
+function otHistCached(person, year) {
+  try { return localStorage.getItem('att_hist_' + person + '_' + year) === '1'; } catch(e) { return false; }
+}
+
 // 超时余额那一行 HTML：历史没回全时不显示数字（否则会显示成负数），回全了再显示真值
 function otBalanceHtml(person) {
   const key = person + '|' + currentYear;
-  const failed = (_otHistFail[key] || 0) >= 3;
   const box = 'background:#fff7ed;padding:4px 10px;border-radius:6px;flex-basis:100%;';
-  if (!otHistReady(person, currentYear) && !failed) {
+  const ready = otHistReady(person, currentYear);
+  const fails = _otHistFail[key] || 0;
+  const cached = otHistCached(person, currentYear);
+  if (!ready && fails < 3) {
     ensureOTHistory(person, currentYear).then(function () { render(); });
-    return '<div class="stat-item" style="' + box + '">⏱ 超时余额：<b style="color:#888;">正在核对历史数据…</b></div>';
+    if (!cached) return '<div class="stat-item" style="' + box + '">⏱ 超时余额：<b style="color:#888;">正在同步历史数据…</b></div>';
   }
   const otBal = calcOvertimeBalance(person, ym());
   let detail = '';
@@ -1537,10 +1629,34 @@ function otBalanceHtml(person) {
       ? '上月结转 <b style="color:' + (otBal.carried < 0 ? '#d14343' : 'inherit') + '">' + overtimeLabel(otBal.carried) + '</b>' + (otBal.carried > 0 ? ' 未用完作废' : '') + ' · '
       : '') + '本月超时 <b>' + overtimeLabel(otBal.overtime) + '</b> · 已补休 <b>' + overtimeLabel(otBal.present) + '</b>）';
   }
-  if (!otHistReady(person, currentYear)) {
-    detail += ' <span style="color:#d14343;font-size:11px;">⚠ 历史数据未同步，余额可能不准，请下拉刷新</span>';
+  if (!ready) {
+    detail += ' <span style="color:#d14343;font-size:11px;">⚠ ' + (cached ? '本机缓存，云端未确认' : '历史数据未同步，余额可能不准') + '</span>';
   }
   return '<div class="stat-item" style="' + box + '">⏱ 超时余额：净余额 <b style="color:' + (otBal.balance >= 0 ? '#2d8a2d' : '#d14343') + '">' + overtimeLabel(otBal.balance) + '</b>' + detail + '</div>';
+}
+
+// 年休假额度那一行：额度+已休都要云端数据，没同步时不能显示成 0 天
+function leaveQuotaHtml(person) {
+  const box = 'background:#fff7ed;padding:4px 10px;border-radius:6px;flex-basis:100%;';
+  const quotas = loadLeaveQuotas();
+  if (Object.keys(quotas).length === 0) {
+    if (window.__configEnsure) { try { window.__configEnsure().then(function () { render(); }); } catch(e) {} }
+    return '<div class="stat-item" style="' + box + '">🏖 年休假：<b style="color:#888;">正在同步额度…</b></div>';
+  }
+  const ready = otHistReady(person, currentYear);
+  const cached = otHistCached(person, currentYear);
+  if (!ready && (_otHistFail[person + '|' + currentYear] || 0) < 3 && !cached) {
+    return '<div class="stat-item" style="' + box + '">🏖 年休假：<b style="color:#888;">正在同步历史数据…</b></div>';
+  }
+  const q = getPersonLeaveQuota(person);
+  let txt = '🏖 年休假：总额 <b>' + q.total + '</b>天 − 已休 <b>' + q.used + '</b>天 = 剩余 <b>' + q.remaining + '</b>天';
+  if (!q.hasQuota) {
+    let _u = 0;
+    try { _u = calcAnnualLeaveUsed(person, currentYear); } catch(e) {}
+    txt = '🏖 年休假：<b style="color:#888;">未设置额度</b>' + (_u > 0 ? '（已休 ' + Math.round(_u * 100) / 100 + ' 天）' : '');
+  }
+  if (!ready) txt += ' <span style="color:#d14343;font-size:11px;">⚠ 云端未确认</span>';
+  return '<div class="stat-item" style="' + box + '">' + txt + '</div>';
 }
 
 // ── 每日休超时假上限（防止扎堆休假造成无人上班）──
@@ -3121,6 +3237,7 @@ function showSwipeIndicator(text) {
 
 // ── Render ──
 function render() {
+  try { updateSyncBanner(); } catch(e) {}
   const people = loadPeople();
   const app = document.getElementById('app');
 
@@ -4009,7 +4126,7 @@ function renderStats() {
         📊 本月 休超时假共 <b>${presentTotalH}</b>h | 年休假共 <b>${leaveTotalDays}</b>天 | 超时共 <b>${overtimeLabel(overtimeHours)}</b>
       </div>
       ${otLineHtml}
-      ${(() => { const q = getPersonLeaveQuota(displayPerson); return `<div class=\"stat-item\" style=\"background:#fff7ed;padding:4px 10px;border-radius:6px;flex-basis:100%;\">🏖 年休假：总额 <b>${q.total}</b>天 − 已休 <b>${q.used}</b>天 = 剩余 <b>${q.remaining}</b>天</div>`; })()}
+      ${leaveQuotaHtml(displayPerson)}
       <div class="stat-item">👤 <b>${displayPerson}</b>${viewTarget ? ' <span style="font-size:10px;color:#e67e22;">(👁只读)</span>' : ''}</div>
       <div class="stat-item">本月共 <b>${daysInMonth}</b> 天</div>
       <div class="stat-item">已登记 <b>${marked}</b></div>
