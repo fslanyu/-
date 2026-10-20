@@ -1230,6 +1230,8 @@ if (_SB) {
       try { if (window.__startConfigRetry) window.__startConfigRetry(); } catch(e) {}
       // 6 秒宽限过后刷一次页头同步状态（否则一直停在"连接中"）
       setTimeout(function(){ try { updateSyncBanner(); } catch(e) {} }, 7000);
+      // 4 秒后查一次版本：手机上的旧页面会提示"有新版本，点此更新"
+      setTimeout(function(){ try { checkNewVersion(); } catch(e) {} }, 4000);
 
       if (loaded && !degraded) {
         // 人员列表加载成功，同步到 localStorage（离线兜底）
@@ -1624,6 +1626,30 @@ window.forceRefreshApp = function () {
   try { location.replace(location.pathname + '?r=' + Date.now()); }
   catch(e) { location.reload(); }
 };
+
+// ★ 新版本检测：手机上"添加到桌面"后页面会被长期缓存，导致用着几个月前的旧代码。
+//   这里对比云端 version.txt，发现不一致就提示"点此更新"（以后改版就不用手动催人换链接了）
+function checkNewVersion() {
+  try {
+    fetch('version.txt?_=' + Date.now(), { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.text() : ''; })
+      .then(function (v) {
+        v = String(v || '').trim();
+        if (!v || v === APP_VER) return;
+        var el = document.getElementById('verBanner');
+        if (!el) {
+          el = document.createElement('div');
+          el.id = 'verBanner';
+          el.style.cssText = 'position:fixed;left:8px;right:8px;bottom:8px;z-index:9998;background:#1e6fd9;color:#fff;font-size:12px;line-height:1.6;padding:8px 12px;border-radius:8px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,.25);';
+          document.body.appendChild(el);
+        }
+        el.innerHTML = '🔄 有新版本（v' + v + '）'
+          + ' <span style="text-decoration:underline;cursor:pointer;" onclick="forceRefreshApp()">点此更新</span>'
+          + ' <span style="opacity:.6;cursor:pointer;padding-left:6px;" onclick="this.parentNode.remove()">×</span>';
+      })
+      .catch(function () {});
+  } catch(e) {}
+}
 
 // 本机是否已镜像过这个人的整年历史（断网/弱网时也能先算出正确余额）
 function otHistCached(person, year) {
