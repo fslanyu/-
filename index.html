@@ -1342,6 +1342,31 @@ if (_SB) {
         catch(e) { console.error('Supabase load retry '+(i+1)+':', e); if (i < 2) await _sleep(1500*(i+1)); }
       }
       let degraded = !_C.people || !_C.people.length;
+      // ★ 名单/配置没取到 → 后台每 20 秒自己重试一次（最多 15 次≈5 分钟）。
+      //   手机那条线路时通时不通，人把页面放着不管，网络一恢复就自动补上名单和配置，不用重开。
+      if (!loaded || degraded) {
+        (function () {
+          let tries = 0;
+          const t = setInterval(async function () {
+            tries++;
+            if (tries > 15) { clearInterval(t); return; }
+            try {
+              await _loadAll(1);
+              if (_C.people && _C.people.length) {
+                clearInterval(t);
+                try { _orig_savePeople_ls([..._C.people]); } catch(e) {}
+                try { _markCloud(true); } catch(e) {}
+                if (window.__needPickIdentity) {
+                  try { showIdentityGate(); } catch(e) {}
+                  try { if (window.__gateFill) window.__gateFill(); } catch(e) {}
+                }
+                try { render(); } catch(e) {}
+                try { showToast('☁ 云端已连上，数据已同步'); } catch(e) {}
+              }
+            } catch(e) {}
+          }, 20000);
+        })();
+      }
       // ★ 配置（超时结转底数/年休假额度）没读到就每 8 秒自动重试，读到后自动重画
       try { if (window.__startConfigRetry) window.__startConfigRetry(); } catch(e) {}
       // 6 秒宽限过后刷一次页头同步状态（否则一直停在"连接中"）
@@ -1714,7 +1739,7 @@ function ensureOTHistory(person, year) {
 }
 
 // ── 云端同步状态（页头一行小字：☁ 已同步 / 未连接；未连接可点一下重试）──
-const APP_VER = '2026-10-21k';
+const APP_VER = '2026-10-21l';
 const APP_START = Date.now();
 function updateSyncBanner() {
   try {
