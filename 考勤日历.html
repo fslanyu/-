@@ -1218,7 +1218,7 @@ if (_SB) {
           } catch(e) {}
           // 预加载当前人员全年+去年数据（年休假已休天数、超时余额等跨月计算需要）
           try {
-            await window.__preloadPersonYear(currentPerson, currentYear);
+            await ensureOTHistory(currentPerson, currentYear);
             await window.__preloadPersonYear(currentPerson, currentYear - 1);
             render();
           } catch(e) {}
@@ -1492,6 +1492,55 @@ function calcOvertimeBalance(person, ymStr) {
   const gross = carry + cur.overtime - cur.present; // 本月可用（上月结转 + 本月超时 - 本月补休）
   // 净余额（balance）= 本月可用；carry = 本月结转（上月结转仅下月有效，未用完作废，结转上限为本月超时）
   return { carried: carry, overtime: cur.overtime, present: cur.present, balance: gross, carry: Math.min(cur.overtime, gross) };
+}
+
+// ★ 超时余额要跨月滚动（7/8/9 月…）才算得对，而 loadData 是云端懒加载：
+//   第一次渲染时历史月份还是空的 → 结转被算成 0 → 净余额假性变负数（很多人手机打开看到负数就是这个）。
+//   这里记录「某人某年」的历史是否真的拉完：没拉完先显示"正在核对"，拉完自动重算。
+const _otHistDone = {};   // person|year -> true（历史已拉完）
+const _otHistP = {};      // person|year -> Promise（去重，避免重复请求）
+const _otHistFail = {};   // person|year -> 连续失败次数
+function otHistReady(person, year) { return !!_otHistDone[person + '|' + year]; }
+function ensureOTHistory(person, year) {
+  const key = person + '|' + year;
+  if (_otHistDone[key]) return Promise.resolve(true);
+  if (_otHistP[key]) return _otHistP[key];
+  if (typeof window.__preloadPersonYear !== 'function') return Promise.resolve(false);
+  // 底数月所在年份也要拉（跨年时 2027-01 需要 2026 年的数据）
+  const years = [];
+  years.push(year);
+  const _by = parseInt(String(OT_CARRY_BASE_MONTH).split('-')[0], 10);
+  if (_by && _by < year && years.indexOf(_by) < 0) years.push(_by);
+  _otHistP[key] = Promise.all(years.map(function (y) {
+    return window.__preloadPersonYear(person, y);
+  })).then(function () {
+    _otHistDone[key] = true; _otHistFail[key] = 0; _otHistP[key] = null; return true;
+  }).catch(function () {
+    _otHistFail[key] = (_otHistFail[key] || 0) + 1; _otHistP[key] = null; return false;
+  });
+  return _otHistP[key];
+}
+
+// 超时余额那一行 HTML：历史没回全时不显示数字（否则会显示成负数），回全了再显示真值
+function otBalanceHtml(person) {
+  const key = person + '|' + currentYear;
+  const failed = (_otHistFail[key] || 0) >= 3;
+  const box = 'background:#fff7ed;padding:4px 10px;border-radius:6px;flex-basis:100%;';
+  if (!otHistReady(person, currentYear) && !failed) {
+    ensureOTHistory(person, currentYear).then(function () { render(); });
+    return '<div class="stat-item" style="' + box + '">⏱ 超时余额：<b style="color:#888;">正在核对历史数据…</b></div>';
+  }
+  const otBal = calcOvertimeBalance(person, ym());
+  let detail = '';
+  if (otBal.carried !== 0 || otBal.overtime > 0 || otBal.present > 0) {
+    detail = '（' + (otBal.carried !== 0
+      ? '上月结转 <b style="color:' + (otBal.carried < 0 ? '#d14343' : 'inherit') + '">' + overtimeLabel(otBal.carried) + '</b>' + (otBal.carried > 0 ? ' 未用完作废' : '') + ' · '
+      : '') + '本月超时 <b>' + overtimeLabel(otBal.overtime) + '</b> · 已补休 <b>' + overtimeLabel(otBal.present) + '</b>）';
+  }
+  if (!otHistReady(person, currentYear)) {
+    detail += ' <span style="color:#d14343;font-size:11px;">⚠ 历史数据未同步，余额可能不准，请下拉刷新</span>';
+  }
+  return '<div class="stat-item" style="' + box + '">⏱ 超时余额：净余额 <b style="color:' + (otBal.balance >= 0 ? '#2d8a2d' : '#d14343') + '">' + overtimeLabel(otBal.balance) + '</b>' + detail + '</div>';
 }
 
 // ── 每日休超时假上限（防止扎堆休假造成无人上班）──
@@ -2729,6 +2778,8 @@ async function pickHours(key, hours, statusType, leaveSubtype) {
       }
     }
     const delta = hNum - oldPresentH;
+    // ★ 历史月份没拉完时结转=0、余额算小，会误拦/误放。先补齐历史再校验。
+    try { await ensureOTHistory(currentPerson, currentYear); } catch(e) {}
     const bal = calcOvertimeBalance(currentPerson, ym());
     const projected = bal.balance - delta;
     if (projected < -2.5) {
@@ -3952,14 +4003,12 @@ function renderStats() {
         otherLeaveHtml += `<div class="stat-item">${st} <b>${cnt}</b>天${halfCnt > 0 ? ` (含${halfCnt}个半天)` : ''}</div>`;
       }
     }
-    const otBal = calcOvertimeBalance(displayPerson, ym());
+    const otLineHtml = otBalanceHtml(displayPerson);
     let statsHtml = `
       <div class="stat-item" style="background:#f0f4ff;padding:4px 10px;border-radius:6px;flex-basis:100%;">
         📊 本月 休超时假共 <b>${presentTotalH}</b>h | 年休假共 <b>${leaveTotalDays}</b>天 | 超时共 <b>${overtimeLabel(overtimeHours)}</b>
       </div>
-      <div class="stat-item" style="background:#fff7ed;padding:4px 10px;border-radius:6px;flex-basis:100%;">
-        ⏱ 超时余额：净余额 <b style="color:${otBal.balance >= 0 ? '#2d8a2d' : '#d14343'}">${overtimeLabel(otBal.balance)}</b>${otBal.carried !== 0 || otBal.overtime > 0 || otBal.present > 0 ? `（${otBal.carried !== 0 ? `上月结转 <b style="color:${otBal.carried < 0 ? '#d14343' : 'inherit'}">${overtimeLabel(otBal.carried)}</b>${otBal.carried > 0 ? ' 未用完作废' : ''} · ` : ''}本月超时 <b>${overtimeLabel(otBal.overtime)}</b> · 已补休 <b>${overtimeLabel(otBal.present)}</b>）` : ''}
-      </div>
+      ${otLineHtml}
       ${(() => { const q = getPersonLeaveQuota(displayPerson); return `<div class=\"stat-item\" style=\"background:#fff7ed;padding:4px 10px;border-radius:6px;flex-basis:100%;\">🏖 年休假：总额 <b>${q.total}</b>天 − 已休 <b>${q.used}</b>天 = 剩余 <b>${q.remaining}</b>天</div>`; })()}
       <div class="stat-item">👤 <b>${displayPerson}</b>${viewTarget ? ' <span style="font-size:10px;color:#e67e22;">(👁只读)</span>' : ''}</div>
       <div class="stat-item">本月共 <b>${daysInMonth}</b> 天</div>
