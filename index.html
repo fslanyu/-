@@ -1237,19 +1237,19 @@ if (_SB) {
         // 人员列表加载成功，同步到 localStorage（离线兜底）
         _orig_savePeople_ls([..._C.people]);
 
-        // 如果当前是"本人"且列表有真实人员，自动切换到第一个
-        if (currentPerson === '本人' && _C.people.length > 0) {
-          const first = _C.people[0];
-          if (isPersonLocked(first) && !unlockedPersons.has(first)) {
-            // 第一个人员被锁定，找第一个未锁定的
-            const fu = _C.people.find(p => !isPersonLocked(p) || unlockedPersons.has(p));
-            if (fu) { currentPerson = fu; saveCurrentPerson(fu); }
-          } else {
-            currentPerson = first;
-            saveCurrentPerson(first);
-          }
+        // ★ 首次打开（本机没存过身份）：弹出"选择你的姓名"闸门，
+        //   不再自动顶上名单第一个人的名字（那样员工看到的是别人的考勤，还填不了）
+        if (window.__needPickIdentity) {
+          try { showIdentityGate(); } catch(e) { console.error('身份闸门:', e); }
         }
         render();
+      }
+
+      // 名单没取到也要给个闸门（否则空白页面没法操作）
+      if (window.__needPickIdentity) {
+        setTimeout(function () {
+          try { if (!document.getElementById('identityGate')) showIdentityGate(); } catch(e) {}
+        }, 400);
       }
 
       // 加载当前月份云端数据（与 localStorage 合并，云端优先，保留本地独有）
@@ -1587,7 +1587,7 @@ function ensureOTHistory(person, year) {
 }
 
 // ── 云端同步状态（页头一行小字：☁ 已同步 / 未连接；未连接可点一下重试）──
-const APP_VER = '2026-10-20b';
+const APP_VER = '2026-10-21a';
 const APP_START = Date.now();
 function updateSyncBanner() {
   try {
@@ -1627,6 +1627,71 @@ window.forceRefreshApp = function () {
   catch(e) { location.reload(); }
 };
 
+// ── 身份闸门 ────────────────────────────────────────────────
+// 第一次在这个浏览器/这台手机打开（本机没存过身份）时，让本人自己选姓名。
+// 以前这里会偷偷用"本人"或顶上名单第一个人 → 员工看到别人的考勤、点日期还被拦，
+// 于是反馈"用浏览器打开就不行"。改名/名单变化后也不会再出现"我是个不存在的名字"。
+function showIdentityGate() {
+  if (document.getElementById('identityGate')) return;
+  let list = [];
+  try { if (typeof _C !== 'undefined' && _C && _C.people && _C.people.length) list = _C.people.slice(); } catch(e) {}
+  if (!list.length) { try { list = loadPeople() || []; } catch(e) { list = []; } }
+  const btns = list.map(function (n) {
+    return '<button data-n="' + n.replace(/"/g, '&quot;') + '" onclick="pickIdentityFromGate(this.getAttribute(\'data-n\'))" '
+      + 'style="margin:4px;padding:10px 14px;font-size:15px;border:1px solid #d9dce1;border-radius:8px;background:#fff;color:#333;">'
+      + n + (isPersonLocked(n) ? ' 🔒' : '') + '</button>';
+  }).join('');
+  const ov = document.createElement('div');
+  ov.id = 'identityGate';
+  ov.style.cssText = 'position:fixed;left:0;top:0;right:0;bottom:0;z-index:10050;background:#f5f6f8;display:flex;flex-direction:column;padding:16px;box-sizing:border-box;';
+  ov.innerHTML = '<div style="font-size:16px;color:#333;line-height:1.6;">👤 请选择<b>你的姓名</b>'
+    + '<div style="font-size:12px;color:#888;margin-top:4px;">第一次在这台手机/这个浏览器打开，选一次就好，以后自动记住。带 🔒 的要输入你自己设的密码（忘了找琨、景斌重置）。</div></div>'
+    + '<input id="identityGateSearch" placeholder="输入姓名搜索" oninput="filterIdentityGate(this.value)" style="margin:10px 0 6px;padding:10px 12px;font-size:15px;border:1px solid #d9dce1;border-radius:8px;outline:none;">'
+    + '<div id="identityGateList" style="flex:1;overflow:auto;-webkit-overflow-scrolling:touch;display:flex;flex-wrap:wrap;align-content:flex-start;">'
+    + (btns || '<div style="color:#d14343;font-size:13px;line-height:1.7;">人员名单还没同步上（没连到云端）。<br>请连上网后点下面「重新加载名单」。</div>')
+    + '</div>'
+    + '<div style="padding-top:10px;text-align:center;">'
+    + '<button onclick="location.reload()" style="padding:8px 16px;font-size:13px;border:1px solid #d9dce1;border-radius:8px;background:#fff;">重新加载名单</button>'
+    + '</div>';
+  document.body.appendChild(ov);
+}
+function filterIdentityGate(q) {
+  q = String(q || '').trim();
+  const box = document.getElementById('identityGateList');
+  if (!box) return;
+  for (let i = 0; i < box.children.length; i++) {
+    const b = box.children[i];
+    const n = b.getAttribute('data-n') || '';
+    b.style.display = (!q || n.indexOf(q) >= 0) ? '' : 'none';
+  }
+}
+function pickIdentityFromGate(name) {
+  if (!name) return;
+  if (!isAdmin && isPersonLocked(name) && !unlockedPersons.has(name)) {
+    showPinPrompt(name, '此身份已锁定，请输入密码（你自己设的那个；忘了找琨、景斌重置）', function (pin) {
+      if (pin === getPersonPin(name)) { persistUnlock(name); finishPickIdentity(name); }
+      else { showToast('❌ 密码错误', true); }
+    });
+    const _pp = document.getElementById('pinPromptOverlay');
+    if (_pp) _pp.style.zIndex = '10060'; // 密码框要压在身份闸门上面
+    return;
+  }
+  finishPickIdentity(name);
+}
+function finishPickIdentity(name) {
+  currentPerson = name;
+  saveCurrentPerson(name);
+  window.__needPickIdentity = false;
+  viewTarget = null; activeDate = null;
+  const ov = document.getElementById('identityGate');
+  if (ov && ov.parentNode) ov.parentNode.removeChild(ov);
+  const np = document.getElementById('notePanel'); if (np) np.classList.remove('active');
+  render();
+  showToast('👤 身份：' + name);
+  // 重新走一遍完整加载（本机缓存 + 云端当月 + 全年历史），最省事也最不容易出错
+  setTimeout(function () { try { location.reload(); } catch (e) {} }, 300);
+}
+
 // ★ 新版本检测：手机上"添加到桌面"后页面会被长期缓存，导致用着几个月前的旧代码。
 //   这里对比云端 version.txt，发现不一致就提示"点此更新"（以后改版就不用手动催人换链接了）
 function checkNewVersion() {
@@ -1658,6 +1723,7 @@ function otHistCached(person, year) {
 
 // 超时余额那一行 HTML：历史没回全时不显示数字（否则会显示成负数），回全了再显示真值
 function otBalanceHtml(person) {
+  if (!person) return '';
   const key = person + '|' + currentYear;
   const box = 'background:#fff7ed;padding:4px 10px;border-radius:6px;flex-basis:100%;';
   const ready = otHistReady(person, currentYear);
@@ -1682,6 +1748,7 @@ function otBalanceHtml(person) {
 
 // 年休假额度那一行：额度+已休都要云端数据，没同步时不能显示成 0 天
 function leaveQuotaHtml(person) {
+  if (!person) return '';
   const box = 'background:#fff7ed;padding:4px 10px;border-radius:6px;flex-basis:100%;';
   const quotas = loadLeaveQuotas();
   if (Object.keys(quotas).length === 0) {
@@ -2150,6 +2217,7 @@ function showToast(msg, warn) {
   const t = document.createElement('div');
   t.className = 'toast' + (warn ? ' warn' : '');
   t.textContent = msg;
+  t.style.zIndex = '10100'; // 永远压在最上层（身份闸门打开时也要能看到提示）
   document.body.appendChild(t);
   setTimeout(() => t.remove(), 2000);
 }
@@ -2554,6 +2622,15 @@ function closeOTManager() {
 //   云端就出现名单外的脏数据（云端 2026-10-06「本人 / 班次 早班」那条就是这么来的）。
 function identityNotReady() {
   return !currentPerson || currentPerson === '本人';
+}
+// 被身份守卫拦下时的提示：首次打开要提示"先选姓名"，别再说"人员列表未加载"（会误导）
+function identityBlockMsg(batch) {
+  if (window.__needPickIdentity) {
+    return '⚠️ 请先在页面上方「我的身份」选择你的姓名，然后再填报';
+  }
+  return batch
+    ? '⚠️ 人员列表未加载，暂时无法批量填报。请检查网络后重新打开页面'
+    : '⚠️ 人员列表未加载，暂时无法填报。请检查网络后重新打开页面';
 }
 
 // ── Status Picker (non-admin: 休超时假/缺勤/迟到/休假; admin: all) ──
@@ -3208,25 +3285,13 @@ function init() {
   currentYear = now.getFullYear();
   currentMonth = now.getMonth() + 1;
   currentPerson = loadCurrentPerson();
-  if (!loadPeople().length) {
-    currentPerson = '本人';
-    // 不再 savePeople/saveCurrentPerson，避免持久化"本人"到 localStorage
-  } else if (!currentPerson || currentPerson === '本人') {
-    // 列表有真实人员时，自动选第一个
-    currentPerson = loadPeople()[0];
-    saveCurrentPerson(currentPerson);
-  }
-  if (!currentPerson) {
-    currentPerson = loadPeople()[0];
-    saveCurrentPerson(currentPerson);
-  }
-  // 如果当前身份被锁定且未解锁，切换到第一个未锁定的
-  if (!isAdmin && isPersonLocked(currentPerson) && !unlockedPersons.has(currentPerson)) {
-    const firstUnlocked = loadPeople().find(p => !isPersonLocked(p));
-    if (firstUnlocked) {
-      currentPerson = firstUnlocked;
-      saveCurrentPerson(currentPerson);
-    }
+  // ★ 本机没存过身份 = 第一次在这个浏览器/这台手机打开这个应用。
+  //   旧逻辑会偷偷用"本人"，或自动顶上名单第一个人（页面上显示的是别人的名字+🔒），
+  //   员工点日期只会看到"人员列表未加载，无法填报"，于是反馈"用浏览器打开就不行"。
+  //   现在改成：不猜、不顶别人名字，由本人自己选姓名。
+  window.__needPickIdentity = !currentPerson || currentPerson === '本人';
+  if (window.__needPickIdentity) {
+    currentPerson = '';
   }
   render();
   setupSwipeGestures();
@@ -3322,6 +3387,7 @@ function render() {
         <button class="add-person-btn" onclick="addPerson()">＋ 添加</button>
       ` : `
         <select class="identity-select" id="identitySelect" onchange="onIdentityChange(this.value)">
+          ${(!currentPerson) ? '<option value="" selected>— 请选择你的姓名 —</option>' : ''}
           ${people.map(p => { const eid = getEmployeeId(p); return `<option value="${p}" ${p===currentPerson?'selected':''}>${p}${eid?'('+eid+')':''}${isPersonLocked(p)?' 🔒':''}</option>`; }).join('')}
         </select>
         ${isPersonLocked(currentPerson) ? `
@@ -3865,7 +3931,7 @@ function renderDaysGrid() {
       if (isAdmin) {
         cell.addEventListener('click', () => {
           if (identityNotReady()) {
-            showToast('⚠️ 人员列表未加载，暂时无法填报。请检查网络后重新打开页面', true);
+            showToast(identityBlockMsg(), true);
           } else if (hasAny) {
             showMultiStatusEditor(key, d);
           } else {
@@ -3880,7 +3946,7 @@ function renderDaysGrid() {
         // 自己的日历，可编辑（限近3天）
         cell.addEventListener('click', () => {
           if (identityNotReady()) {
-            showToast('⚠️ 人员列表未加载，暂时无法填报。请检查网络后重新打开页面', true);
+            showToast(identityBlockMsg(), true);
           } else if (isPersonLocked(currentPerson) && !unlockedPersons.has(currentPerson)) {
             showToast('🔒 此身份已锁定，请先输入密码解锁', true);
           } else if (key < cutoffStr) {
@@ -4270,7 +4336,7 @@ function clearMonth() {
 function batchSet(status) {
   if (!isAdmin) return;
   if (identityNotReady()) {
-    showToast('⚠️ 人员列表未加载，暂时无法批量填报。请检查网络后重新打开页面', true);
+    showToast(identityBlockMsg(true), true);
     return;
   }
   if (!confirm(`确认将「${currentPerson}」${currentYear}年${currentMonth}月全部设为「${STATUS[status].label}」？`)) return;
