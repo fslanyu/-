@@ -1587,7 +1587,7 @@ function ensureOTHistory(person, year) {
 }
 
 // ── 云端同步状态（页头一行小字：☁ 已同步 / 未连接；未连接可点一下重试）──
-const APP_VER = '2026-10-21a';
+const APP_VER = '2026-10-21b';
 const APP_START = Date.now();
 function updateSyncBanner() {
   try {
@@ -1670,7 +1670,7 @@ function pickIdentityFromGate(name) {
   if (!isAdmin && isPersonLocked(name) && !unlockedPersons.has(name)) {
     showPinPrompt(name, '此身份已锁定，请输入密码（你自己设的那个；忘了找琨、景斌重置）', function (pin) {
       if (pin === getPersonPin(name)) { persistUnlock(name); finishPickIdentity(name); }
-      else { showToast('❌ 密码错误', true); }
+      else { showToast('❌ 密码错误，请重试', true); setTimeout(function () { try { pickIdentityFromGate(name); } catch(e) {} }, 60); }
     });
     const _pp = document.getElementById('pinPromptOverlay');
     if (_pp) _pp.style.zIndex = '10060'; // 密码框要压在身份闸门上面
@@ -2395,7 +2395,7 @@ function showPinPrompt(name, title, cb) {
     </div>
   `;
   document.body.appendChild(overlay);
-  setTimeout(() => document.getElementById('pinInput').focus(), 50);
+  setTimeout(() => { const _pi = document.getElementById('pinInput'); if (_pi) _pi.focus(); }, 50);
   document.getElementById('pinInput').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') confirmPinPrompt();
     if (e.key === 'Escape') closePinPrompt();
