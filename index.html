@@ -544,15 +544,45 @@ if (_SB) {
   const _C = { people: null, pinMap: {}, configMap: {}, dataCache: {}, noteCache: {}, lastPush: {} };
 
   // ★ 云端连通状态：任何一次读写失败都记下来，界面据此提示"数据没同步"
-  window.__cloud = { ok: null, err: '', at: 0 };
+  //   ★ 2026-10-21d：单次抖动不再立刻报红（手机弱网打开页面时经常第一次连不上），
+  //     连续 2 次失败才报红；报红后每 20 秒静默自检，通了自动变绿（不用手点刷新）
+  window.__cloud = { ok: null, err: '', at: 0, fails: 0 };
+  let _cloudFails = 0, _healthTimer = null;
+  function _errText(e) {
+    const s = String((e && e.message) || e || '');
+    if (!navigator.onLine) return '手机没联网';
+    if ((e && e.name === 'AbortError') || /abort/i.test(s)) return '网络超时';
+    if (/Failed to fetch|NetworkError|Load failed|Network request failed/i.test(s)) return '网络不通';
+    const m = s.match(/\b(4\d\d|5\d\d)\b/);
+    if (m) return (m[1] === '401' || m[1] === '403') ? '云端拒绝(' + m[1] + ')' : '云端报错' + m[1];
+    return s.slice(0, 20) || '未知错误';
+  }
   function _markCloud(ok, err) {
-    window.__cloud = { ok: ok, err: ok ? '' : String(err && err.message || err || ''), at: Date.now() };
+    _cloudFails = ok ? 0 : (_cloudFails + 1);
+    window.__cloud = { ok: ok, err: ok ? '' : _errText(err), at: Date.now(), fails: _cloudFails };
     try { updateSyncBanner(); } catch(e) {}
+    if (!ok && _cloudFails >= 2) _startHealthCheck();
+  }
+  // 报红后的静默自检：每 20 秒取 1 行，通了立刻把页头改绿
+  function _startHealthCheck() {
+    if (_healthTimer) return;
+    _healthTimer = setInterval(async function () {
+      if (window.__cloud && window.__cloud.ok === true) { clearInterval(_healthTimer); _healthTimer = null; return; }
+      try { await _sGET('people?select=name&limit=1'); } catch(e) {}
+    }, 20000);
+  }
+  // 所有云端请求统一带 12 秒超时：弱网不会一直卡在"连接中"，也不会永远报红
+  async function _sbFetch(url, opts, ms) {
+    if (typeof AbortController === 'undefined') return fetch(url, opts); // 老内核兜底
+    const ac = new AbortController();
+    const t = setTimeout(function () { try { ac.abort(); } catch(e) {} }, ms || 12000);
+    try { return await fetch(url, Object.assign({}, opts, { signal: ac.signal })); }
+    finally { clearTimeout(t); }
   }
 
   async function _sGET(p) {
     let r;
-    try { r = await fetch(`${SUPABASE_URL}/rest/v1/${p}`, { headers: { apikey: SUPABASE_KEY } }); }
+    try { r = await _sbFetch(`${SUPABASE_URL}/rest/v1/${p}`, { headers: { apikey: SUPABASE_KEY } }); }
     catch (e) { _markCloud(false, e); throw e; }
     if (!r.ok) { const e = new Error(`${p}: ${r.status}`); _markCloud(false, e); throw e; }
     const j = await r.json();
@@ -560,23 +590,26 @@ if (_SB) {
     return j;
   }
   async function _sPOST(t, b) {
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/${t}`, {
+    const r = await _sbFetch(`${SUPABASE_URL}/rest/v1/${t}`, {
       method: 'POST', headers: { apikey: SUPABASE_KEY,
         'Content-Type': 'application/json', Prefer: 'return=minimal' }, body: JSON.stringify(b) });
     if (!r.ok) throw new Error(`POST ${t}: ${r.status}`);
+    _markCloud(true);
   }
   async function _sPATCH(t, m, b) {
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/${t}?${m}`, {
+    const r = await _sbFetch(`${SUPABASE_URL}/rest/v1/${t}?${m}`, {
       method: 'PATCH', headers: { apikey: SUPABASE_KEY,
         'Content-Type': 'application/json', Prefer: 'return=minimal' }, body: JSON.stringify(b) });
     // ★ 必须检查 r.ok：fetch 对 4xx/5xx 不会抛错，不检查就会把"写入失败"当成成功
     if (!r.ok) throw new Error(`PATCH ${t}: ${r.status}`);
+    _markCloud(true);
   }
   async function _sDELETE(t, m) {
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/${t}?${m}`, {
+    const r = await _sbFetch(`${SUPABASE_URL}/rest/v1/${t}?${m}`, {
       method: 'DELETE', headers: { apikey: SUPABASE_KEY,
         Prefer: 'return=minimal' } });
     if (!r.ok) throw new Error(`DELETE ${t}: ${r.status}`);
+    _markCloud(true);
   }
 
   // ★ 分页取全量：Supabase/PostgREST 单次请求最多返回 1000 行，
@@ -586,9 +619,9 @@ if (_SB) {
     const sep = path.includes('?') ? '&' : '?';
     const all = [];
     for (let off = 0; ; off += pageSize) {
-      const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}${sep}order=${order}`, {
+      const r = await _sbFetch(`${SUPABASE_URL}/rest/v1/${path}${sep}order=${order}`, {
         headers: { apikey: SUPABASE_KEY, 'Range': `${off}-${off + pageSize - 1}` }
-      });
+      }, 20000);
       if (!r.ok) throw new Error(`${path}: ${r.status}`);
       const rows = await r.json();
       all.push(...rows);
@@ -1230,6 +1263,15 @@ if (_SB) {
       try { if (window.__startConfigRetry) window.__startConfigRetry(); } catch(e) {}
       // 6 秒宽限过后刷一次页头同步状态（否则一直停在"连接中"）
       setTimeout(function(){ try { updateSyncBanner(); } catch(e) {} }, 7000);
+      // ★ 网络恢复 / 切回页面时自动重测云端：通了页头自动变绿，不用用户手点刷新
+      try {
+        const _reprobe = function () {
+          if (window.__cloud && window.__cloud.ok === true) { try { updateSyncBanner(); } catch(e) {} return; }
+          _sGET('people?select=name&limit=1').catch(function () {});
+        };
+        window.addEventListener('online', function () { _cloudFails = 0; _reprobe(); });
+        document.addEventListener('visibilitychange', function () { if (!document.hidden) _reprobe(); });
+      } catch(e) {}
       // 4 秒后查一次版本：手机上的旧页面会提示"有新版本，点此更新"
       setTimeout(function(){ try { checkNewVersion(); } catch(e) {} }, 4000);
 
@@ -1587,19 +1629,21 @@ function ensureOTHistory(person, year) {
 }
 
 // ── 云端同步状态（页头一行小字：☁ 已同步 / 未连接；未连接可点一下重试）──
-const APP_VER = '2026-10-21c';
+const APP_VER = '2026-10-21d';
 const APP_START = Date.now();
 function updateSyncBanner() {
   try {
     // 打开页面头几秒还在加载，别闪红字（给 6 秒宽限）
     const grace = (Date.now() - APP_START) < 6000;
-    const cloudErr = !!(window.__cloud && window.__cloud.ok === false) && !grace;
+    // ★ 单次失败不报红：弱网下打开页面第一次连不上很常见，连续 2 次失败才算真断
+    const cloudErr = !!(window.__cloud && window.__cloud.ok === false && (window.__cloud.fails || 1) >= 2) && !grace;
+    const why = (window.__cloud && window.__cloud.err) ? '（' + window.__cloud.err + '）' : '';
     const cfgMissing = !!(window.__configReady && !window.__configReady()) && !grace;
     // ① 页头小字：让每台手机一眼看出自己有没有连上云端
     const st = document.getElementById('syncStatus');
     if (st) {
       if (cloudErr) {
-        st.innerHTML = '<span style="color:#d14343;cursor:pointer;" onclick="forceRefreshApp()">☁ 云端未连接 · 点此重试</span>';
+        st.innerHTML = '<span style="color:#d14343;cursor:pointer;" onclick="forceRefreshApp()">☁ 云端未连接' + why + ' · 点此重试</span>';
       } else if (cfgMissing) {
         st.innerHTML = '<span style="color:#d14343;cursor:pointer;" onclick="forceRefreshApp()">☁ 配置未同步 · 点此重试</span>';
       } else if (window.__cloud && window.__cloud.ok === true) {
@@ -1617,7 +1661,7 @@ function updateSyncBanner() {
       el.style.cssText = 'position:fixed;left:8px;right:8px;bottom:64px;z-index:9999;background:#d14343;color:#fff;font-size:12px;line-height:1.6;padding:8px 12px;border-radius:8px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,.25);';
       document.body.appendChild(el);
     }
-    el.innerHTML = '⚠ 云端数据没同步上，余额/年休假可能不准 '
+    el.innerHTML = '⚠ 云端数据没同步上' + why + '，余额/年休假可能不准 '
       + '<span style="text-decoration:underline;cursor:pointer;" onclick="forceRefreshApp()">点这里刷新</span>'
       + '<span style="opacity:.7;"> v' + APP_VER + '</span>';
   } catch(e) {}
