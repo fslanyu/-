@@ -1661,7 +1661,7 @@ function ensureOTHistory(person, year) {
 }
 
 // ── 云端同步状态（页头一行小字：☁ 已同步 / 未连接；未连接可点一下重试）──
-const APP_VER = '2026-10-21h';
+const APP_VER = '2026-10-21i';
 const APP_START = Date.now();
 function updateSyncBanner() {
   try {
@@ -1754,13 +1754,24 @@ window.__netProbe = async function () {
     }
   };
   const enc = encodeURIComponent;
+  // 外网站点用图片探测：不受 CORS 限制，能真实反映「这台手机能不能上普通网站」
+  const imgProbe = function (url, ms) {
+    return new Promise(function (res) {
+      let done = false;
+      const img = new Image();
+      const t = setTimeout(function () { if (!done) { done = true; res('超时'); } }, ms || 6000);
+      img.onload = function () { if (!done) { done = true; clearTimeout(t); res('通'); } };
+      img.onerror = function () { if (!done) { done = true; clearTimeout(t); res('不通'); } };
+      img.src = url + (url.indexOf('?') >= 0 ? '&' : '?') + '_=' + Date.now();
+    });
+  };
   const rs = await Promise.all([
     one('version.txt?_=' + Date.now(), {}),
     one(SUPABASE_URL + '/rest/v1/people?select=name&limit=1&apikey=' + enc(SUPABASE_KEY), {}),
     one(SUPABASE_URL + '/rest/v1/', {}),
-    one('https://api.ipify.org?format=json', {})
+    imgProbe('https://www.baidu.com/favicon.ico', 6000)
   ]);
-  return '本站 ' + rs[0] + ' ｜ 云端名单 ' + rs[1] + ' ｜ 云端根域 ' + rs[2] + ' ｜ 外网站点 ' + rs[3];
+  return '本站 ' + rs[0] + ' ｜ 云端名单 ' + rs[1] + ' ｜ 云端根域 ' + rs[2] + ' ｜ 外网(百度) ' + rs[3];
 };
 async function identityGateDiagRun() {
   if (!document.getElementById('identityGateDiag')) return;
