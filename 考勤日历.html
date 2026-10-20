@@ -1228,6 +1228,8 @@ if (_SB) {
       let degraded = !_C.people || !_C.people.length;
       // ★ 配置（超时结转底数/年休假额度）没读到就每 8 秒自动重试，读到后自动重画
       try { if (window.__startConfigRetry) window.__startConfigRetry(); } catch(e) {}
+      // 6 秒宽限过后刷一次页头同步状态（否则一直停在"连接中"）
+      setTimeout(function(){ try { updateSyncBanner(); } catch(e) {} }, 7000);
 
       if (loaded && !degraded) {
         // 人员列表加载成功，同步到 localStorage（离线兜底）
@@ -1582,13 +1584,30 @@ function ensureOTHistory(person, year) {
   return _otHistP[key];
 }
 
-// ── 云端未同步提示条（只在真有问题时出现，正常时完全不占界面）──
-const APP_VER = '2026-10-20a';
+// ── 云端同步状态（页头一行小字：☁ 已同步 / 未连接；未连接可点一下重试）──
+const APP_VER = '2026-10-20b';
+const APP_START = Date.now();
 function updateSyncBanner() {
   try {
+    // 打开页面头几秒还在加载，别闪红字（给 6 秒宽限）
+    const grace = (Date.now() - APP_START) < 6000;
+    const cloudErr = !!(window.__cloud && window.__cloud.ok === false) && !grace;
+    const cfgMissing = !!(window.__configReady && !window.__configReady()) && !grace;
+    // ① 页头小字：让每台手机一眼看出自己有没有连上云端
+    const st = document.getElementById('syncStatus');
+    if (st) {
+      if (cloudErr) {
+        st.innerHTML = '<span style="color:#d14343;cursor:pointer;" onclick="forceRefreshApp()">☁ 云端未连接 · 点此重试</span>';
+      } else if (cfgMissing) {
+        st.innerHTML = '<span style="color:#d14343;cursor:pointer;" onclick="forceRefreshApp()">☁ 配置未同步 · 点此重试</span>';
+      } else if (window.__cloud && window.__cloud.ok === true) {
+        st.innerHTML = '<span style="color:#2d8a2d;">☁ 已同步 v' + APP_VER + '</span>';
+      } else {
+        st.innerHTML = '<span style="color:#999;">☁ 连接中… v' + APP_VER + '</span>';
+      }
+    }
+    // ② 底部红条：只在真有问题时出现
     let el = document.getElementById('syncBanner');
-    const cloudErr = !!(window.__cloud && window.__cloud.ok === false);
-    const cfgMissing = !!(window.__configReady && !window.__configReady());
     if (!(cloudErr || cfgMissing)) { if (el && el.parentNode) el.parentNode.removeChild(el); return; }
     if (!el) {
       el = document.createElement('div');
@@ -3237,7 +3256,8 @@ function showSwipeIndicator(text) {
 
 // ── Render ──
 function render() {
-  try { updateSyncBanner(); } catch(e) {}
+  // 页头同步状态 DOM 在下面 innerHTML 里重建，这里再补一次，保证每次都更新
+  try { updateSyncBanner(); setTimeout(function(){ try { updateSyncBanner(); } catch(e) {} }, 0); } catch(e) {}
   const people = loadPeople();
   const app = document.getElementById('app');
 
@@ -3266,6 +3286,7 @@ function render() {
       </div>
       ${viewToggleHtml}
       ${adminBtnHtml}
+      <div id="syncStatus" style="font-size:11px;margin-top:4px;"></div>
     </div>
 
     <div class="person-bar">
