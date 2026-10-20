@@ -1661,7 +1661,7 @@ function ensureOTHistory(person, year) {
 }
 
 // ── 云端同步状态（页头一行小字：☁ 已同步 / 未连接；未连接可点一下重试）──
-const APP_VER = '2026-10-21g';
+const APP_VER = '2026-10-21h';
 const APP_START = Date.now();
 function updateSyncBanner() {
   try {
@@ -1733,6 +1733,42 @@ function identityGateFill() {
   return true;
 }
 window.__gateFill = identityGateFill;
+// ★ 断网自检：名单取不到时自动测几条链路（本站 / 云端名单 / 云端根域 / 外网站点），
+//   把结果写进闸门红字下面。以后一张截图就能分清是「域名被拦」「浏览器拦第三方」还是「云端问题」。
+window.__netProbe = async function () {
+  const ac8 = function () {
+    if (typeof AbortController === 'undefined') return { opt: {}, done: function () {} };
+    const ac = new AbortController();
+    const t = setTimeout(function () { try { ac.abort(); } catch(e) {} }, 8000);
+    return { opt: { signal: ac.signal }, done: function () { clearTimeout(t); } };
+  };
+  const one = async function (url, headers) {
+    const a = ac8(), t0 = Date.now();
+    try {
+      const r = await fetch(url, Object.assign({ headers: headers || {} }, a.opt));
+      a.done();
+      return '通(' + r.status + ') ' + (Date.now() - t0) + 'ms';
+    } catch (e) {
+      a.done();
+      return (e && e.name === 'AbortError') ? '超时' : '不通';
+    }
+  };
+  const enc = encodeURIComponent;
+  const rs = await Promise.all([
+    one('version.txt?_=' + Date.now(), {}),
+    one(SUPABASE_URL + '/rest/v1/people?select=name&limit=1&apikey=' + enc(SUPABASE_KEY), {}),
+    one(SUPABASE_URL + '/rest/v1/', {}),
+    one('https://api.ipify.org?format=json', {})
+  ]);
+  return '本站 ' + rs[0] + ' ｜ 云端名单 ' + rs[1] + ' ｜ 云端根域 ' + rs[2] + ' ｜ 外网站点 ' + rs[3];
+};
+async function identityGateDiagRun() {
+  if (!document.getElementById('identityGateDiag')) return;
+  let txt = '正在自检网络…';
+  try { txt = await window.__netProbe(); } catch(e) { txt = '自检失败'; }
+  const b = document.getElementById('identityGateDiag');
+  if (b) b.textContent = '自检：' + txt;
+}
 // ★ 名单没取到时每 5 秒自己重试一次：一拿到就地把名字铺上去
 //   （以前闸门只在打开那一刻找一次名单，失败就永久停在红字上，只能整页重开；
 //     重开又常卡在同一处 → 员工反馈"就是打不开"）
@@ -1767,13 +1803,14 @@ function showIdentityGate() {
     + '<div style="font-size:12px;color:#888;margin-top:4px;">第一次在这台手机/这个浏览器打开，选一次就好，以后自动记住。带 🔒 的要输入你自己设的密码（忘了找琨、景斌重置）。</div></div>'
     + '<input id="identityGateSearch" placeholder="输入姓名搜索" oninput="filterIdentityGate(this.value)" style="margin:10px 0 6px;padding:10px 12px;font-size:15px;border:1px solid #d9dce1;border-radius:8px;outline:none;">'
     + '<div id="identityGateList" style="flex:1;overflow:auto;-webkit-overflow-scrolling:touch;display:flex;flex-wrap:wrap;align-content:flex-start;">'
-    + (btns || '<div style="color:#d14343;font-size:13px;line-height:1.7;">人员名单还没同步上' + why + '（没连到云端）。<br>正在自动重试（每 5 秒），也可以点下面「重新加载名单」。</div>')
+    + (btns || '<div style="color:#d14343;font-size:13px;line-height:1.7;">人员名单还没同步上' + why + '（没连到云端）。<br>正在自动重试（每 5 秒），也可以点下面「重新加载名单」。'
+        + '<div id="identityGateDiag" style="color:#999;font-size:11px;line-height:1.6;margin-top:8px;word-break:break-all;">正在自检网络…</div></div>')
     + '</div>'
     + '<div style="padding-top:10px;text-align:center;">'
     + '<button onclick="gateManualReload(this)" style="padding:8px 16px;font-size:13px;border:1px solid #d9dce1;border-radius:8px;background:#fff;">重新加载名单</button>'
     + '</div>';
   document.body.appendChild(ov);
-  if (!btns) { try { identityGateSelfHeal(); } catch(e) {} }
+  if (!btns) { try { identityGateSelfHeal(); } catch(e) {} try { identityGateDiagRun(); } catch(e) {} }
 }
 function filterIdentityGate(q) {
   q = String(q || '').trim();
