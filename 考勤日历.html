@@ -538,6 +538,9 @@ body {
 // ════════════════════════════════════════════════════════
 const SUPABASE_URL = 'https://vqtpvdmdjjraxgvdqdri.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_iZI1HfOLJqFntgBxkjhD5g_DycELeiQ';
+// ★ 中转（镜像）地址：直连不通时按顺序改走这里（国内固定可达）。
+//   留空数组 = 只用直连。填法示例：['https://xxxx.apigw.tencentcs.com/release']
+const SUPABASE_MIRRORS = [];
 const _SB = !!(SUPABASE_URL && SUPABASE_KEY && !SUPABASE_URL.includes('xxxx'));
 
 if (_SB) {
@@ -620,78 +623,77 @@ if (_SB) {
       } catch(e) { reject(e); }
     });
   }
+  // 直连 + 所有中转地址（SUPABASE_MIRRORS），按顺序试
+  function _sbBases() { return [SUPABASE_URL].concat(SUPABASE_MIRRORS || []); }
   function _sbUrl(p) { return `${SUPABASE_URL}/rest/v1/${p}` + (p.indexOf('?') >= 0 ? '&' : '?') + 'apikey=' + encodeURIComponent(SUPABASE_KEY); }
+  function _sbMirrorUrl(base, p) { return base + '/rest/v1/' + p + (p.indexOf('?') >= 0 ? '&' : '?') + 'apikey=' + encodeURIComponent(SUPABASE_KEY); }
 
   async function _sGET(p) {
-    let r;
-    try { r = await _sbFetch(`${SUPABASE_URL}/rest/v1/${p}`, { headers: { apikey: SUPABASE_KEY } }); }
-    catch (e) {
-      try { const j = await _sXHR('GET', _sbUrl(p), undefined, true); _markCloud(true); return j; }
-      catch (e2) { _markCloud(false, e); throw e; }
+    let lastErr = null;
+    for (const base of _sbBases()) {
+      const url = base + '/rest/v1/' + p;
+      let r;
+      try { r = await _sbFetch(url, { headers: { apikey: SUPABASE_KEY } }); }
+      catch (e) {
+        // fetch 全挂了再试 XHR（个别浏览器 fetch 被改造过）
+        try { const j = await _sXHR('GET', _sbMirrorUrl(base, p), undefined, true); _markCloud(true); return j; }
+        catch (e2) { lastErr = e; continue; }
+      }
+      if (!r.ok) { lastErr = new Error(`${p}: ${r.status}`); continue; }
+      try { const j = await r.json(); _markCloud(true); return j; }
+      catch (e) { lastErr = e; continue; }
     }
-    if (!r.ok) { const e = new Error(`${p}: ${r.status}`); _markCloud(false, e); throw e; }
-    const j = await r.json();
-    _markCloud(true);
-    return j;
+    _markCloud(false, lastErr);
+    throw lastErr;
   }
-  async function _sPOST(t, b) {
-    let r;
-    try {
-      r = await _sbFetch(`${SUPABASE_URL}/rest/v1/${t}`, {
-        method: 'POST', headers: { apikey: SUPABASE_KEY,
-          'Content-Type': 'application/json', Prefer: 'return=minimal' }, body: JSON.stringify(b) });
-    } catch (e) {
-      try { await _sXHR('POST', _sbUrl(t), b, false); _markCloud(true); return; }
-      catch (e2) { throw e; }
+  // 写入统一入口：每个地址先 fetch，全失败再 XHR；★ 必须查 r.ok（fetch 对 4xx/5xx 不抛错）
+  async function _sWrite(method, path, body, extra) {
+    let lastErr = null;
+    for (const base of _sbBases()) {
+      const url = base + '/rest/v1/' + path;
+      let r;
+      try {
+        r = await _sbFetch(url, { method: method,
+          headers: Object.assign({ apikey: SUPABASE_KEY }, extra || {}),
+          body: body === undefined ? undefined : JSON.stringify(body) });
+      } catch (e) {
+        try { await _sXHR(method, _sbMirrorUrl(base, path), body, false); _markCloud(true); return true; }
+        catch (e2) { lastErr = e; continue; }
+      }
+      if (!r.ok) { lastErr = new Error(`${method} ${path}: ${r.status}`); continue; }
+      _markCloud(true);
+      return true;
     }
-    if (!r.ok) throw new Error(`POST ${t}: ${r.status}`);
-    _markCloud(true);
+    _markCloud(false, lastErr);
+    throw lastErr;
   }
-  async function _sPATCH(t, m, b) {
-    let r;
-    try {
-      r = await _sbFetch(`${SUPABASE_URL}/rest/v1/${t}?${m}`, {
-        method: 'PATCH', headers: { apikey: SUPABASE_KEY,
-          'Content-Type': 'application/json', Prefer: 'return=minimal' }, body: JSON.stringify(b) });
-    } catch (e) {
-      try { await _sXHR('PATCH', _sbUrl(`${t}?${m}`), b, false); _markCloud(true); return; }
-      catch (e2) { throw e; }
-    }
-    // ★ 必须检查 r.ok：fetch 对 4xx/5xx 不会抛错，不检查就会把"写入失败"当成成功
-    if (!r.ok) throw new Error(`PATCH ${t}: ${r.status}`);
-    _markCloud(true);
-  }
-  async function _sDELETE(t, m) {
-    let r;
-    try {
-      r = await _sbFetch(`${SUPABASE_URL}/rest/v1/${t}?${m}`, {
-        method: 'DELETE', headers: { apikey: SUPABASE_KEY,
-          Prefer: 'return=minimal' } });
-    } catch (e) {
-      try { await _sXHR('DELETE', _sbUrl(`${t}?${m}`), undefined, false); _markCloud(true); return; }
-      catch (e2) { throw e; }
-    }
-    if (!r.ok) throw new Error(`DELETE ${t}: ${r.status}`);
-    _markCloud(true);
-  }
+  async function _sPOST(t, b) { return _sWrite('POST', t, b, { 'Content-Type': 'application/json', Prefer: 'return=minimal' }); }
+  async function _sPATCH(t, m, b) { return _sWrite('PATCH', `${t}?${m}`, b, { 'Content-Type': 'application/json', Prefer: 'return=minimal' }); }
+  async function _sDELETE(t, m) { return _sWrite('DELETE', `${t}?${m}`, undefined, { Prefer: 'return=minimal' }); }
 
   // ★ 分页取全量：Supabase/PostgREST 单次请求最多返回 1000 行，
   //   Range 写再大也会被截断，必须循环分页取完，否则数据缺失而不报错！
   //   path 需自带 select/过滤条件；order 必传，保证分页边界稳定。
   async function _sGETAll(path, order, pageSize = 1000) {
     const sep = path.includes('?') ? '&' : '?';
-    const all = [];
-    for (let off = 0; ; off += pageSize) {
-      const r = await _sbFetch(`${SUPABASE_URL}/rest/v1/${path}${sep}order=${order}`, {
-        headers: { apikey: SUPABASE_KEY, 'Range': `${off}-${off + pageSize - 1}` }
-      }, 20000);
-      if (!r.ok) throw new Error(`${path}: ${r.status}`);
-      const rows = await r.json();
-      all.push(...rows);
-      if (rows.length < pageSize) break;
-      if (off > 500000) break; // 安全上限
+    let lastErr = null;
+    for (const base of _sbBases()) {
+      try {
+        const all = [];
+        for (let off = 0; ; off += pageSize) {
+          const r = await _sbFetch(`${base}/rest/v1/${path}${sep}order=${order}`, {
+            headers: { apikey: SUPABASE_KEY, 'Range': `${off}-${off + pageSize - 1}` }
+          }, 20000);
+          if (!r.ok) throw new Error(`${path}: ${r.status}`);
+          const rows = await r.json();
+          all.push(...rows);
+          if (rows.length < pageSize) break;
+          if (off > 500000) break; // 安全上限
+        }
+        return all;
+      } catch (e) { lastErr = e; }
     }
-    return all;
+    throw lastErr;
   }
 
   // ★ 带重试的云端写入（配置/备注等小数据）：失败重试 3 次，仍失败则明确提示，不静默
@@ -1712,7 +1714,7 @@ function ensureOTHistory(person, year) {
 }
 
 // ── 云端同步状态（页头一行小字：☁ 已同步 / 未连接；未连接可点一下重试）──
-const APP_VER = '2026-10-21j';
+const APP_VER = '2026-10-21k';
 const APP_START = Date.now();
 function updateSyncBanner() {
   try {
