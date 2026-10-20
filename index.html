@@ -1629,7 +1629,7 @@ function ensureOTHistory(person, year) {
 }
 
 // ── 云端同步状态（页头一行小字：☁ 已同步 / 未连接；未连接可点一下重试）──
-const APP_VER = '2026-10-21d';
+const APP_VER = '2026-10-21e';
 const APP_START = Date.now();
 function updateSyncBanner() {
   try {
@@ -1661,8 +1661,9 @@ function updateSyncBanner() {
       el.style.cssText = 'position:fixed;left:8px;right:8px;bottom:64px;z-index:9999;background:#d14343;color:#fff;font-size:12px;line-height:1.6;padding:8px 12px;border-radius:8px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,.25);';
       document.body.appendChild(el);
     }
-    el.innerHTML = '⚠ 云端数据没同步上' + why + '，余额/年休假可能不准 '
-      + '<span style="text-decoration:underline;cursor:pointer;" onclick="forceRefreshApp()">点这里刷新</span>'
+    el.innerHTML = '⚠ 云端暂时没连上' + why + '：填报照常可用，数据先存这台手机，联网后自动补传'
+      + '（只是余额/年休假可能暂时不准）'
+      + '<span style="text-decoration:underline;cursor:pointer;" onclick="forceRefreshApp()">点这里重试</span>'
       + '<span style="opacity:.7;"> v' + APP_VER + '</span>';
   } catch(e) {}
 }
