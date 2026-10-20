@@ -581,45 +581,96 @@ if (_SB) {
   }
   // ★ 个别手机浏览器/微信内嵌浏览器会拦掉「带自定义头(apikey)」的跨域请求（浏览器报 Failed to fetch，
   //   页面上就显示"网络不通"）。这种情况把 apikey 放到查询串重试一次：简单请求、不触发预检 OPTIONS，通常就通了。
+  //   ★ 2026-10-21j：再加第③层——连 AbortController 的 signal 都不带（部分国产内核一看到 signal 参数就报 Failed to fetch）。
   async function _sbFetch(url, opts, ms) {
     try { return await _sbFetchOnce(url, opts, ms); }
     catch (e) {
+      if (e && e.name === 'AbortError') throw e;            // 超时不是头/参数的问题，别乱换姿势重试
       const h = opts && opts.headers;
-      if (!h || !h.apikey || (e && e.name === 'AbortError')) throw e;
+      if (!h || !h.apikey) {
+        const o4 = Object.assign({}, opts); delete o4.signal;  // 无自定义头：只去掉 signal 再试
+        return await fetch(url, o4);
+      }
       const h2 = Object.assign({}, h); delete h2.apikey;
       const u2 = url + (url.indexOf('?') >= 0 ? '&' : '?') + 'apikey=' + encodeURIComponent(h.apikey);
-      return await _sbFetchOnce(u2, Object.assign({}, opts, { headers: h2 }), ms || 12000);
+      try { return await _sbFetchOnce(u2, Object.assign({}, opts, { headers: h2 }), ms || 12000); }
+      catch (e2) { if (e2 && e2.name === 'AbortError') throw e2; }
+      const o3 = Object.assign({}, opts, { headers: h2 }); delete o3.signal;
+      return await fetch(u2, o3);                          // ③ 不带 signal 的裸 fetch
     }
   }
+  // ★ 最后一层兜底：极个别浏览器的 fetch 被改造过（一调就 Failed to fetch），但同一个浏览器的 XHR 是好的。
+  //   只在 fetch 全部失败后走这里，健康机型完全不受影响。
+  function _sXHR(method, url, body, wantJson) {
+    return new Promise(function (resolve, reject) {
+      try {
+        const x = new XMLHttpRequest();
+        x.open(method, url, true);
+        x.timeout = 15000;
+        if (body !== undefined) x.setRequestHeader('Content-Type', 'application/json');
+        x.onload = function () {
+          if (x.status >= 200 && x.status < 300) {
+            if (!wantJson) return resolve(true);
+            try { resolve(JSON.parse(x.responseText)); } catch(e) { reject(new Error('XHR JSON ' + e.message)); }
+          } else reject(new Error('XHR ' + method + ' ' + x.status));
+        };
+        x.onerror = function () { reject(new Error('Network request failed')); };
+        x.ontimeout = function () { reject(new Error('abort timeout')); };
+        x.send(body === undefined ? null : JSON.stringify(body));
+      } catch(e) { reject(e); }
+    });
+  }
+  function _sbUrl(p) { return `${SUPABASE_URL}/rest/v1/${p}` + (p.indexOf('?') >= 0 ? '&' : '?') + 'apikey=' + encodeURIComponent(SUPABASE_KEY); }
 
   async function _sGET(p) {
     let r;
     try { r = await _sbFetch(`${SUPABASE_URL}/rest/v1/${p}`, { headers: { apikey: SUPABASE_KEY } }); }
-    catch (e) { _markCloud(false, e); throw e; }
+    catch (e) {
+      try { const j = await _sXHR('GET', _sbUrl(p), undefined, true); _markCloud(true); return j; }
+      catch (e2) { _markCloud(false, e); throw e; }
+    }
     if (!r.ok) { const e = new Error(`${p}: ${r.status}`); _markCloud(false, e); throw e; }
     const j = await r.json();
     _markCloud(true);
     return j;
   }
   async function _sPOST(t, b) {
-    const r = await _sbFetch(`${SUPABASE_URL}/rest/v1/${t}`, {
-      method: 'POST', headers: { apikey: SUPABASE_KEY,
-        'Content-Type': 'application/json', Prefer: 'return=minimal' }, body: JSON.stringify(b) });
+    let r;
+    try {
+      r = await _sbFetch(`${SUPABASE_URL}/rest/v1/${t}`, {
+        method: 'POST', headers: { apikey: SUPABASE_KEY,
+          'Content-Type': 'application/json', Prefer: 'return=minimal' }, body: JSON.stringify(b) });
+    } catch (e) {
+      try { await _sXHR('POST', _sbUrl(t), b, false); _markCloud(true); return; }
+      catch (e2) { throw e; }
+    }
     if (!r.ok) throw new Error(`POST ${t}: ${r.status}`);
     _markCloud(true);
   }
   async function _sPATCH(t, m, b) {
-    const r = await _sbFetch(`${SUPABASE_URL}/rest/v1/${t}?${m}`, {
-      method: 'PATCH', headers: { apikey: SUPABASE_KEY,
-        'Content-Type': 'application/json', Prefer: 'return=minimal' }, body: JSON.stringify(b) });
+    let r;
+    try {
+      r = await _sbFetch(`${SUPABASE_URL}/rest/v1/${t}?${m}`, {
+        method: 'PATCH', headers: { apikey: SUPABASE_KEY,
+          'Content-Type': 'application/json', Prefer: 'return=minimal' }, body: JSON.stringify(b) });
+    } catch (e) {
+      try { await _sXHR('PATCH', _sbUrl(`${t}?${m}`), b, false); _markCloud(true); return; }
+      catch (e2) { throw e; }
+    }
     // ★ 必须检查 r.ok：fetch 对 4xx/5xx 不会抛错，不检查就会把"写入失败"当成成功
     if (!r.ok) throw new Error(`PATCH ${t}: ${r.status}`);
     _markCloud(true);
   }
   async function _sDELETE(t, m) {
-    const r = await _sbFetch(`${SUPABASE_URL}/rest/v1/${t}?${m}`, {
-      method: 'DELETE', headers: { apikey: SUPABASE_KEY,
-        Prefer: 'return=minimal' } });
+    let r;
+    try {
+      r = await _sbFetch(`${SUPABASE_URL}/rest/v1/${t}?${m}`, {
+        method: 'DELETE', headers: { apikey: SUPABASE_KEY,
+          Prefer: 'return=minimal' } });
+    } catch (e) {
+      try { await _sXHR('DELETE', _sbUrl(`${t}?${m}`), undefined, false); _markCloud(true); return; }
+      catch (e2) { throw e; }
+    }
     if (!r.ok) throw new Error(`DELETE ${t}: ${r.status}`);
     _markCloud(true);
   }
@@ -1661,7 +1712,7 @@ function ensureOTHistory(person, year) {
 }
 
 // ── 云端同步状态（页头一行小字：☁ 已同步 / 未连接；未连接可点一下重试）──
-const APP_VER = '2026-10-21i';
+const APP_VER = '2026-10-21j';
 const APP_START = Date.now();
 function updateSyncBanner() {
   try {
@@ -1769,9 +1820,21 @@ window.__netProbe = async function () {
     one('version.txt?_=' + Date.now(), {}),
     one(SUPABASE_URL + '/rest/v1/people?select=name&limit=1&apikey=' + enc(SUPABASE_KEY), {}),
     one(SUPABASE_URL + '/rest/v1/', {}),
-    imgProbe('https://www.baidu.com/favicon.ico', 6000)
+    imgProbe('https://www.baidu.com/favicon.ico', 6000),
+    // XHR 通道：有些浏览器 fetch 坏了但 XHR 还好（应用里已自动走这条兜底）
+    new Promise(function (res) {
+      try {
+        const x = new XMLHttpRequest(), t0 = Date.now();
+        x.open('GET', SUPABASE_URL + '/rest/v1/people?select=name&limit=1&apikey=' + enc(SUPABASE_KEY), true);
+        x.timeout = 8000;
+        x.onload = function () { res('通(' + x.status + ') ' + (Date.now() - t0) + 'ms'); };
+        x.onerror = function () { res('不通'); };
+        x.ontimeout = function () { res('超时'); };
+        x.send();
+      } catch(e) { res('不通'); }
+    })
   ]);
-  return '本站 ' + rs[0] + ' ｜ 云端名单 ' + rs[1] + ' ｜ 云端根域 ' + rs[2] + ' ｜ 外网(百度) ' + rs[3];
+  return '本站 ' + rs[0] + ' ｜ 云端fetch ' + rs[1] + ' ｜ 云端根域 ' + rs[2] + ' ｜ 外网(百度) ' + rs[3] + ' ｜ 云端XHR ' + rs[4];
 };
 async function identityGateDiagRun() {
   if (!document.getElementById('identityGateDiag')) return;
