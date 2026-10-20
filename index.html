@@ -708,6 +708,24 @@ if (_SB) {
     throw lastErr; // 全部失败才抛
   }
 
+  // ★ 身份闸门自救用：只重拉名单/pin/配置（三个都带失败容错），拿到就写本机缓存。
+  //   闸门里的「重新加载名单」和每 5 秒自动重试都走这里 —— 不整套重载、不整页刷新。
+  window.__gateReloadPeople = async function () {
+    try {
+      const [ppl, pins, cfg] = await Promise.all([
+        _sGET('people?select=name&order=name'),
+        _sGET('pins?select=*').catch(function () { return []; }),
+        _sGET('config?select=*').catch(function () { return []; })
+      ]);
+      if (!ppl || !ppl.length) return false;
+      _C.people = ppl.map(function (r) { return r.name; });
+      for (const r of pins) _C.pinMap[r.person] = { locked: true, pin: r.pin };
+      for (const r of cfg) _C.configMap[r.key] = r.value;
+      try { localStorage.setItem('attendance_people', JSON.stringify(_C.people)); } catch(e) {}
+      return true;
+    } catch (e) { return false; }
+  };
+
   // 延迟注入（等原始函数定义后覆盖）
   function _injectOverrides() {
     const orig_loadPeople = loadPeople;
@@ -1295,6 +1313,8 @@ if (_SB) {
         //   不再自动顶上名单第一个人的名字（那样员工看到的是别人的考勤，还填不了）
         if (window.__needPickIdentity) {
           try { showIdentityGate(); } catch(e) { console.error('身份闸门:', e); }
+          // 名单是刚拿到的：闸门若已在（早前空白建过），把名字补进去
+          try { if (window.__gateFill) window.__gateFill(); } catch(e) {}
         }
         render();
       }
@@ -1641,7 +1661,7 @@ function ensureOTHistory(person, year) {
 }
 
 // ── 云端同步状态（页头一行小字：☁ 已同步 / 未连接；未连接可点一下重试）──
-const APP_VER = '2026-10-21f';
+const APP_VER = '2026-10-21g';
 const APP_START = Date.now();
 function updateSyncBanner() {
   try {
@@ -1688,16 +1708,58 @@ window.forceRefreshApp = function () {
 // 第一次在这个浏览器/这台手机打开（本机没存过身份）时，让本人自己选姓名。
 // 以前这里会偷偷用"本人"或顶上名单第一个人 → 员工看到别人的考勤、点日期还被拦，
 // 于是反馈"用浏览器打开就不行"。改名/名单变化后也不会再出现"我是个不存在的名字"。
-function showIdentityGate() {
-  if (document.getElementById('identityGate')) return;
+function identityGateNames() {
   let list = [];
   try { if (typeof _C !== 'undefined' && _C && _C.people && _C.people.length) list = _C.people.slice(); } catch(e) {}
   if (!list.length) { try { list = loadPeople() || []; } catch(e) { list = []; } }
-  const btns = list.map(function (n) {
+  return list;
+}
+function identityGateBtnHtml(list) {
+  return list.map(function (n) {
     return '<button data-n="' + n.replace(/"/g, '&quot;') + '" onclick="pickIdentityFromGate(this.getAttribute(\'data-n\'))" '
       + 'style="margin:4px;padding:10px 14px;font-size:15px;border:1px solid #d9dce1;border-radius:8px;background:#fff;color:#333;">'
       + n + (isPersonLocked(n) ? ' 🔒' : '') + '</button>';
   }).join('');
+}
+// 就地把名字铺进闸门（名单后到也能补上，不用整页重开）
+function identityGateFill() {
+  const box = document.getElementById('identityGateList');
+  if (!box) return false;
+  const list = identityGateNames();
+  if (!list.length) return false;
+  box.innerHTML = identityGateBtnHtml(list);
+  const q = (document.getElementById('identityGateSearch') || {}).value || '';
+  if (q) filterIdentityGate(q);
+  return true;
+}
+window.__gateFill = identityGateFill;
+// ★ 名单没取到时每 5 秒自己重试一次：一拿到就地把名字铺上去
+//   （以前闸门只在打开那一刻找一次名单，失败就永久停在红字上，只能整页重开；
+//     重开又常卡在同一处 → 员工反馈"就是打不开"）
+function identityGateSelfHeal() {
+  if (window.__gateHealTimer) return;
+  window.__gateHealTimer = setInterval(async function () {
+    if (!document.getElementById('identityGateList')) { clearInterval(window.__gateHealTimer); window.__gateHealTimer = null; return; }
+    if (identityGateFill()) { clearInterval(window.__gateHealTimer); window.__gateHealTimer = null; return; }
+    try { if (window.__gateReloadPeople) await window.__gateReloadPeople(); } catch(e) {}
+    if (identityGateFill()) { clearInterval(window.__gateHealTimer); window.__gateHealTimer = null; }
+  }, 5000);
+}
+// 红字下面那个「重新加载名单」：先原地重拉名单，不再整页刷新
+window.gateManualReload = async function (btn) {
+  const old = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '正在重试…'; }
+  let ok = false;
+  try { ok = window.__gateReloadPeople ? await window.__gateReloadPeople() : false; } catch(e) {}
+  if (ok && identityGateFill()) { try { showToast('✅ 名单已同步，请选择你的姓名'); } catch(e) {} return; }
+  if (btn) { btn.disabled = false; btn.textContent = old || '重新加载名单'; }
+  try { showToast('❌ 还是连不上云端（' + ((window.__cloud && window.__cloud.err) || '网络异常') + '）', true); } catch(e) {}
+};
+function showIdentityGate() {
+  if (document.getElementById('identityGate')) return;
+  const list = identityGateNames();
+  const btns = list.length ? identityGateBtnHtml(list) : '';
+  const why = (window.__cloud && window.__cloud.err) ? '：' + window.__cloud.err : '';
   const ov = document.createElement('div');
   ov.id = 'identityGate';
   ov.style.cssText = 'position:fixed;left:0;top:0;right:0;bottom:0;z-index:10050;background:#f5f6f8;display:flex;flex-direction:column;padding:16px;box-sizing:border-box;';
@@ -1705,12 +1767,13 @@ function showIdentityGate() {
     + '<div style="font-size:12px;color:#888;margin-top:4px;">第一次在这台手机/这个浏览器打开，选一次就好，以后自动记住。带 🔒 的要输入你自己设的密码（忘了找琨、景斌重置）。</div></div>'
     + '<input id="identityGateSearch" placeholder="输入姓名搜索" oninput="filterIdentityGate(this.value)" style="margin:10px 0 6px;padding:10px 12px;font-size:15px;border:1px solid #d9dce1;border-radius:8px;outline:none;">'
     + '<div id="identityGateList" style="flex:1;overflow:auto;-webkit-overflow-scrolling:touch;display:flex;flex-wrap:wrap;align-content:flex-start;">'
-    + (btns || '<div style="color:#d14343;font-size:13px;line-height:1.7;">人员名单还没同步上（没连到云端）。<br>请连上网后点下面「重新加载名单」。</div>')
+    + (btns || '<div style="color:#d14343;font-size:13px;line-height:1.7;">人员名单还没同步上' + why + '（没连到云端）。<br>正在自动重试（每 5 秒），也可以点下面「重新加载名单」。</div>')
     + '</div>'
     + '<div style="padding-top:10px;text-align:center;">'
-    + '<button onclick="location.reload()" style="padding:8px 16px;font-size:13px;border:1px solid #d9dce1;border-radius:8px;background:#fff;">重新加载名单</button>'
+    + '<button onclick="gateManualReload(this)" style="padding:8px 16px;font-size:13px;border:1px solid #d9dce1;border-radius:8px;background:#fff;">重新加载名单</button>'
     + '</div>';
   document.body.appendChild(ov);
+  if (!btns) { try { identityGateSelfHeal(); } catch(e) {} }
 }
 function filterIdentityGate(q) {
   q = String(q || '').trim();
