@@ -1587,7 +1587,7 @@ function ensureOTHistory(person, year) {
 }
 
 // ── 云端同步状态（页头一行小字：☁ 已同步 / 未连接；未连接可点一下重试）──
-const APP_VER = '2026-10-21b';
+const APP_VER = '2026-10-21c';
 const APP_START = Date.now();
 function updateSyncBanner() {
   try {
@@ -3284,12 +3284,13 @@ function init() {
   const now = new Date();
   currentYear = now.getFullYear();
   currentMonth = now.getMonth() + 1;
-  currentPerson = loadCurrentPerson();
   // ★ 本机没存过身份 = 第一次在这个浏览器/这台手机打开这个应用。
-  //   旧逻辑会偷偷用"本人"，或自动顶上名单第一个人（页面上显示的是别人的名字+🔒），
-  //   员工点日期只会看到"人员列表未加载，无法填报"，于是反馈"用浏览器打开就不行"。
-  //   现在改成：不猜、不顶别人名字，由本人自己选姓名。
-  window.__needPickIdentity = !currentPerson || currentPerson === '本人';
+  //   注意：loadCurrentPerson() 在没存过身份时会兜底返回"名单第一个人"（旧逻辑），
+  //   所以这里必须看原始存储值，不能只看 currentPerson 是否为空，否则闸门永远不触发，
+  //   员工就会顶着别人的名字、点日期还被身份守卫拦住 → 反馈"用浏览器打开就不行"。
+  const _savedPerson = (function () { try { return localStorage.getItem(STORAGE_CURRENT) || ''; } catch (e) { return ''; } })();
+  currentPerson = loadCurrentPerson();
+  window.__needPickIdentity = !_savedPerson || _savedPerson === '本人';
   if (window.__needPickIdentity) {
     currentPerson = '';
   }
