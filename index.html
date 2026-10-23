@@ -844,41 +844,67 @@ if (_SB) {
     };
     const orig_saveData = saveData;
 
-    // ★ 填报后校验：补传本月云端缺失的条目，并回读云端核对本机数据是否真的上传成功
-    //   失败不再静默 —— 明确提示用户，并允许轮询继续重试
+    // ★ 云端这一格是不是「管理员改的」：status_data 任一段带 |admin 标记
+    function _hasAdminFlag(v) {
+      const parts = String(v == null ? '' : v).split(';;');
+      for (const p of parts) { if (/\|admin\s*$/.test(p.trim())) return true; }
+      return false;
+    }
+
+    // ★ 填报后校验：补传云端缺失的条目 + 纠正云端「值不一致」的条目，再回读确认
+    //   ★ 2026-10-23b 关键修补：以前只查「云端有没有这一格」，不查「云端这一格的值对不对」。
+    //     后果：手机把某天从「休超时假」改成别的（或改了小时数），当次 PATCH 因为断网/超时
+    //     重试 3 次仍失败 → 云端留着旧的「休超时假」，校验却判定"已同步"通过 → 导出照云端算，
+    //     于是「手机上是对的，导出的超时假是错的」。现在：缺的补、值不一样的重写一遍
+    //     （以刚保存的本机值为准），改完再回读确认；云端带 |admin 标记的（管理员在 PC 改过）不动。
     window.__verifyMonthSync = async function(person, ym) {
       const enc = encodeURIComponent;
       let localData = {};
       try { localData = JSON.parse(localStorage.getItem('att_' + person + '_' + ym) || '{}'); } catch(e) {}
       const localKeys = Object.keys(localData);
-      if (!localKeys.length) return { unsynced: 0, checked: 0 };
-      // 1) 补传本月云端缺失的条目（只补缺失，绝不覆盖云端已有数据）
+      if (!localKeys.length) return { unsynced: 0, fixed: 0, checked: 0 };
+      // 1) 先补云端缺失的条目（只补缺失，不动已有值）
       try { await window.__pushLocalToCloud(person, ym, false); } catch(e) {}
-      // 2) 回读云端核对
       const readCloud = async () => {
         const c = {};
         const rows = await _sGET(`attendance?select=day_key,status_data&person=eq.${enc(person)}&year_month=eq.${ym}`);
         for (const r of rows) c[r.day_key] = r.status_data;
         return c;
       };
+      // 云端缺这一天 / 值不一样 且 云端不是管理员改的 → 都要处理
+      const badKeys = (c) => localKeys.filter(dk => {
+        if (_tombIncludes(person, ym, dk)) return false;
+        if (!(dk in c)) return true;
+        const cv = String(c[dk] == null ? '' : c[dk]);
+        const lv = String(localData[dk] == null ? '' : localData[dk]);
+        if (cv === lv) return false;
+        return !_hasAdminFlag(cv);
+      });
       let cloud1;
       try { cloud1 = await readCloud(); }
-      catch(e) { return { unsynced: -1, checked: localKeys.length }; } // 读不通，交给轮询重试
-      let missing = localKeys.filter(dk => !(dk in cloud1) && !_tombIncludes(person, ym, dk));
-      // 3) 还缺 → 再补一次；仍缺就提示（不静默）
-      if (missing.length) {
-        try { await window.__pushLocalToCloud(person, ym, false); } catch(e) {}
-        try {
-          const c2 = await readCloud();
-          missing = localKeys.filter(dk => !(dk in c2) && !_tombIncludes(person, ym, dk));
-        } catch(e) {}
+      catch(e) { return { unsynced: -1, fixed: 0, checked: localKeys.length }; } // 读不通，交给轮询重试
+      let bad = badKeys(cloud1);
+      // 2) 有缺的 / 不一致 → 以刚保存的本机值为准重写这几格
+      let fixed = 0;
+      if (bad.length) {
+        for (const dk of bad) {
+          try {
+            const m = `person=eq.${enc(person)}&year_month=eq.${ym}&day_key=eq.${enc(dk)}`;
+            const ex = await _sGET(`attendance?select=id&${m}`);
+            if (ex.length) await _sPATCH('attendance', `id=eq.${ex[0].id}`, { status_data: localData[dk] });
+            else await _sPOST('attendance', { person, year_month: ym, day_key: dk, status_data: localData[dk] });
+            fixed++;
+          } catch(e) { console.error('修正云端失败', person, ym, dk, e); }
+        }
+        // 3) 回读确认，还不对就明确提示（不静默）
+        try { bad = badKeys(await readCloud()); } catch(e) {}
       }
-      if (missing.length) {
-        console.warn('⚠️ 未同步到云端', person, ym, missing);
-        showToast(`⚠️ 有 ${missing.length} 天未同步到云端，请检查手机网络（稍后会自动重试）`, true);
+      if (bad.length) {
+        console.warn('⚠️ 与云端仍不一致', person, ym, bad);
+        showToast(`⚠️ 有 ${bad.length} 天没同步到云端（网络不稳），稍后会自动再试`, true);
         _C.lastPush[`${person}|${ym}`] = 0; // 允许 10 秒轮询立刻再试
       }
-      return { unsynced: missing.length, checked: localKeys.length };
+      return { unsynced: bad.length, fixed: fixed, checked: localKeys.length };
     };
 
     saveData = function(person, ym, data) {
@@ -1244,7 +1270,12 @@ if (_SB) {
       'person,day_key'
     );
     const cloud = {};
-    for (const r of rows) { (cloud[r.person] = cloud[r.person] || {})[r.day_key] = r.status_data; }
+    for (const r of rows) {
+      // ★ 已删除的日期不能复活：preload 那几步都过滤了墓碑，这里以前漏了，
+      //   一旦某天的云端 DELETE 失败而墓碑已写，导出就会把已删的「休超时假」算回来。
+      if (_tombIncludes(r.person, ymStr, r.day_key)) continue;
+      (cloud[r.person] = cloud[r.person] || {})[r.day_key] = r.status_data;
+    }
     const people = (_C.people && _C.people.length) ? _C.people : loadPeople();
     // 用云端全量覆盖本月缓存 —— 导出只认云端，不掺本机旧数据
     for (const p of people) _C.dataCache[`${p}|${ymStr}`] = { ...(cloud[p] || {}) };
@@ -1756,7 +1787,7 @@ function ensureOTHistory(person, year) {
 }
 
 // ── 云端同步状态（页头一行小字：☁ 已同步 / 未连接；未连接可点一下重试）──
-const APP_VER = '2026-10-23a';
+const APP_VER = '2026-10-23b';
 const APP_START = Date.now();
 function updateSyncBanner() {
   try {
