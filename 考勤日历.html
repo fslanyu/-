@@ -624,7 +624,22 @@ if (_SB) {
     });
   }
   // 直连 + 所有中转地址（SUPABASE_MIRRORS），按顺序试
-  function _sbBases() { return [SUPABASE_URL].concat(SUPABASE_MIRRORS || []); }
+  // ★ 直连失败记忆：直连不通时（TLS 被断 / 连接超时），10 分钟内把中转排到最前面，
+  //   不再让每一次请求都先白等 12 秒超时 —— 手机端"转圈 / 报网络不通 / 保存慢"的主因。
+  const _DIRECT_DEAD_MS = 10 * 60 * 1000;
+  const _DIRECT_DEAD_KEY = 'att_direct_dead_at';
+  function _directDeadAt() {
+    try { return parseInt(localStorage.getItem(_DIRECT_DEAD_KEY) || '0', 10) || 0; } catch(e) { return 0; }
+  }
+  function _directIsDead() { return (Date.now() - _directDeadAt()) < _DIRECT_DEAD_MS; }
+  function _markDirectDead() { try { localStorage.setItem(_DIRECT_DEAD_KEY, String(Date.now())); } catch(e) {} }
+  function _clearDirectDead() { try { localStorage.removeItem(_DIRECT_DEAD_KEY); } catch(e) {} }
+  function _fromDirect(base) { return base === SUPABASE_URL; }
+  function _sbBases() {
+    const bases = [SUPABASE_URL].concat(SUPABASE_MIRRORS || []);
+    if (bases.length > 1 && _directIsDead()) bases.reverse();   // 中转优先，直连留作最后兜底
+    return bases;
+  }
   function _sbUrl(p) { return `${SUPABASE_URL}/rest/v1/${p}` + (p.indexOf('?') >= 0 ? '&' : '?') + 'apikey=' + encodeURIComponent(SUPABASE_KEY); }
   function _sbMirrorUrl(base, p) { return base + '/rest/v1/' + p + (p.indexOf('?') >= 0 ? '&' : '?') + 'apikey=' + encodeURIComponent(SUPABASE_KEY); }
 
@@ -636,11 +651,11 @@ if (_SB) {
       try { r = await _sbFetch(url, { headers: { apikey: SUPABASE_KEY } }); }
       catch (e) {
         // fetch 全挂了再试 XHR（个别浏览器 fetch 被改造过）
-        try { const j = await _sXHR('GET', _sbMirrorUrl(base, p), undefined, true); _markCloud(true); return j; }
-        catch (e2) { lastErr = e; continue; }
+        try { const j = await _sXHR('GET', _sbMirrorUrl(base, p), undefined, true); _markCloud(true); if (_fromDirect(base)) _clearDirectDead(); return j; }
+        catch (e2) { lastErr = e; if (_fromDirect(base)) _markDirectDead(); continue; }
       }
-      if (!r.ok) { lastErr = new Error(`${p}: ${r.status}`); continue; }
-      try { const j = await r.json(); _markCloud(true); return j; }
+      if (!r.ok) { lastErr = new Error(`${p}: ${r.status}`); if (_fromDirect(base)) _clearDirectDead(); continue; }
+      try { const j = await r.json(); _markCloud(true); if (_fromDirect(base)) _clearDirectDead(); return j; }
       catch (e) { lastErr = e; continue; }
     }
     _markCloud(false, lastErr);
@@ -657,11 +672,12 @@ if (_SB) {
           headers: Object.assign({ apikey: SUPABASE_KEY }, extra || {}),
           body: body === undefined ? undefined : JSON.stringify(body) });
       } catch (e) {
-        try { await _sXHR(method, _sbMirrorUrl(base, path), body, false); _markCloud(true); return true; }
-        catch (e2) { lastErr = e; continue; }
+        try { await _sXHR(method, _sbMirrorUrl(base, path), body, false); _markCloud(true); if (_fromDirect(base)) _clearDirectDead(); return true; }
+        catch (e2) { lastErr = e; if (_fromDirect(base)) _markDirectDead(); continue; }
       }
-      if (!r.ok) { lastErr = new Error(`${method} ${path}: ${r.status}`); continue; }
+      if (!r.ok) { lastErr = new Error(`${method} ${path}: ${r.status}`); if (_fromDirect(base)) _clearDirectDead(); continue; }
       _markCloud(true);
+      if (_fromDirect(base)) _clearDirectDead();
       return true;
     }
     _markCloud(false, lastErr);
@@ -690,8 +706,9 @@ if (_SB) {
           if (rows.length < pageSize) break;
           if (off > 500000) break; // 安全上限
         }
+        if (_fromDirect(base)) _clearDirectDead();
         return all;
-      } catch (e) { lastErr = e; }
+      } catch (e) { lastErr = e; if (_fromDirect(base)) _markDirectDead(); }
     }
     throw lastErr;
   }
@@ -1739,7 +1756,7 @@ function ensureOTHistory(person, year) {
 }
 
 // ── 云端同步状态（页头一行小字：☁ 已同步 / 未连接；未连接可点一下重试）──
-const APP_VER = '2026-10-21m';
+const APP_VER = '2026-10-23a';
 const APP_START = Date.now();
 function updateSyncBanner() {
   try {
