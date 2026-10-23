@@ -635,6 +635,12 @@ if (_SB) {
   function _markDirectDead() { try { localStorage.setItem(_DIRECT_DEAD_KEY, String(Date.now())); } catch(e) {} }
   function _clearDirectDead() { try { localStorage.removeItem(_DIRECT_DEAD_KEY); } catch(e) {} }
   function _fromDirect(base) { return base === SUPABASE_URL; }
+  // ★ 有中转可用时，直连只给短超时试探：超时/被掐就立刻转中转，别让手机干等 12 秒再报"网络不通"
+  function _timeoutFor(base, normal, cap) {
+    const n = normal || 12000;
+    if (_fromDirect(base) && (SUPABASE_MIRRORS || []).length) return Math.min(n, cap || 4000);
+    return n;
+  }
   function _sbBases() {
     const bases = [SUPABASE_URL].concat(SUPABASE_MIRRORS || []);
     if (bases.length > 1 && _directIsDead()) bases.reverse();   // 中转优先，直连留作最后兜底
@@ -648,7 +654,7 @@ if (_SB) {
     for (const base of _sbBases()) {
       const url = base + '/rest/v1/' + p;
       let r;
-      try { r = await _sbFetch(url, { headers: { apikey: SUPABASE_KEY } }); }
+      try { r = await _sbFetch(url, { headers: { apikey: SUPABASE_KEY } }, _timeoutFor(base)); }
       catch (e) {
         // fetch 全挂了再试 XHR（个别浏览器 fetch 被改造过）
         try { const j = await _sXHR('GET', _sbMirrorUrl(base, p), undefined, true); _markCloud(true); if (_fromDirect(base)) _clearDirectDead(); return j; }
@@ -670,7 +676,7 @@ if (_SB) {
       try {
         r = await _sbFetch(url, { method: method,
           headers: Object.assign({ apikey: SUPABASE_KEY }, extra || {}),
-          body: body === undefined ? undefined : JSON.stringify(body) });
+          body: body === undefined ? undefined : JSON.stringify(body) }, _timeoutFor(base));
       } catch (e) {
         try { await _sXHR(method, _sbMirrorUrl(base, path), body, false); _markCloud(true); if (_fromDirect(base)) _clearDirectDead(); return true; }
         catch (e2) { lastErr = e; if (_fromDirect(base)) _markDirectDead(); continue; }
@@ -699,7 +705,7 @@ if (_SB) {
         for (let off = 0; ; off += pageSize) {
           const r = await _sbFetch(`${base}/rest/v1/${path}${sep}order=${order}`, {
             headers: { apikey: SUPABASE_KEY, 'Range': `${off}-${off + pageSize - 1}` }
-          }, 20000);
+          }, _timeoutFor(base, 20000, 8000));
           if (!r.ok) throw new Error(`${path}: ${r.status}`);
           const rows = await r.json();
           all.push(...rows);
@@ -1506,10 +1512,15 @@ if (_SB) {
           try { refreshFullDays(); } catch(e) {}
         }
       }, 500);
-      // 实时轮询（每10秒）+ 网络恢复自动补全人员列表
-      // 只在数据实际变化时才 re-render，避免无意义的 DOM 重建造成卡顿
+      // 实时轮询（每30秒）+ 网络恢复自动补全人员列表
+      // 只在数据实际变化时才 re-render，避免无意义的 DOM 重建造成卡顿/闪屏
+      // ★ 2026-10-23c：10 秒改 30 秒；页面在后台/锁屏时直接跳过（省电、少发请求）。
       setInterval(async () => {
+        if (document.hidden) return;
         if (!currentPerson || !currentYear || !currentMonth) return;
+        // ★ 稳定比较：JSON.stringify 依赖键插入顺序，云端拉回来的顺序一变就误判"数据变了"，
+        //   于是每轮都整页重建（app.innerHTML）→ 手机上表现为画面频闪、点到一半跳回去。
+        const _stable = (o) => Object.keys(o).sort().map(k => k + '\u0001' + o[k]).join('\u0002');
         const ym = currentYear + '-' + String(currentMonth).padStart(2,'0'), enc = encodeURIComponent;
         // 轮询当前身份 + 查看目标的数据
         const pollPeople = viewTarget ? [currentPerson, viewTarget] : [currentPerson];
@@ -1526,7 +1537,7 @@ if (_SB) {
             // ★ 删除墓碑：本机也下架已删除的日期，否则会被"补传"再次回灌
             const _tk = _tombs()[p + '|' + ym] || [];
             for (const _dk of _tk) delete merged[_dk];
-            if (JSON.stringify(merged) !== JSON.stringify(_C.dataCache[ck] || {})) {
+            if (_stable(merged) !== _stable(_C.dataCache[ck] || {})) {
               _C.dataCache[ck] = merged;
               if (Object.keys(merged).length > 0) localStorage.setItem('att_' + p + '_' + ym, JSON.stringify(merged));
               else localStorage.removeItem('att_' + p + '_' + ym);
@@ -1570,9 +1581,9 @@ if (_SB) {
             return;
           }
         }
-        // 只有数据真的变了才渲染，否则跳过（避免每10秒无意义重建DOM）
+        // 只有数据真的变了才渲染，否则跳过（避免无意义重建DOM）
         if (changed) render();
-      }, 10000);
+      }, 30000);
     };
     init();  // 立即调用覆写后的 init
   });
@@ -1787,7 +1798,7 @@ function ensureOTHistory(person, year) {
 }
 
 // ── 云端同步状态（页头一行小字：☁ 已同步 / 未连接；未连接可点一下重试）──
-const APP_VER = '2026-10-23b';
+const APP_VER = '2026-10-23c';
 const APP_START = Date.now();
 function updateSyncBanner() {
   try {
