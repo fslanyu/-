@@ -1798,7 +1798,7 @@ function ensureOTHistory(person, year) {
 }
 
 // ── 云端同步状态（页头一行小字：☁ 已同步 / 未连接；未连接可点一下重试）──
-const APP_VER = '2026-10-23c';
+const APP_VER = '2026-11-05a';
 const APP_START = Date.now();
 function updateSyncBanner() {
   try {
@@ -2080,11 +2080,11 @@ function leaveQuotaHtml(person) {
     return '<div class="stat-item" style="' + box + '">🏖 年休假：<b style="color:#888;">正在同步历史数据…</b></div>';
   }
   const q = getPersonLeaveQuota(person);
-  let txt = '🏖 年休假：总额 <b>' + q.total + '</b>天 − 已休 <b>' + q.used + '</b>天 = 剩余 <b>' + q.remaining + '</b>天';
+  let txt = '🏖 年休假：总额 <b>' + fracDays(q.total) + '</b>天 − 已休 <b>' + fracDays(q.used) + '</b>天 = 剩余 <b>' + fracDays(q.remaining) + '</b>天';
   if (!q.hasQuota) {
     let _u = 0;
     try { _u = calcAnnualLeaveUsed(person, currentYear); } catch(e) {}
-    txt = '🏖 年休假：<b style="color:#888;">未设置额度</b>' + (_u > 0 ? '（已休 ' + Math.round(_u * 100) / 100 + ' 天）' : '');
+    txt = '🏖 年休假：<b style="color:#888;">未设置额度</b>' + (_u > 0 ? '（已休 ' + fracDays(_u) + ' 天）' : '');
   }
   if (!ready) txt += ' <span style="color:#d14343;font-size:11px;">⚠ 云端未确认</span>';
   return '<div class="stat-item" style="' + box + '">' + txt + '</div>';
@@ -2233,6 +2233,21 @@ function annualLeaveDays(hours) {
   if (hours === '半天3h') return 3 / 7;
   if (hours === '半天') return 0.5;
   return 1;
+}
+
+// 天数显示成分数形式（4/7、1/2、3 4/7）：1 天 = 7 小时，统一按 1/14 天取整再约分，避免 0.5714285714 这种长尾巴
+function fracDays(v) {
+  if (v === null || v === undefined || !isFinite(v)) return '0';
+  const neg = v < -0.000001;
+  const num = Math.round(Math.abs(v) * 14);
+  if (num === 0) return '0';
+  let n = num, d = 14;
+  const gcd = function (a, b) { return b ? gcd(b, a % b) : a; };
+  const g = gcd(n, d);
+  n = n / g; d = d / g;
+  const whole = Math.floor(n / d), rem = n % d;
+  let s = rem === 0 ? String(whole) : (whole ? whole + ' ' : '') + rem + '/' + d;
+  return (neg ? '-' : '') + s;
 }
 
 // 判断年休假某时长是否会超额（用于选时长面板置灰）
@@ -3373,7 +3388,7 @@ async function pickHours(key, hours, statusType, leaveSubtype) {
     if (_q.hasQuota && _delta > 0) {
       const _projected = _q.used + _delta;
       if (_projected - _q.total > 0.0001) {
-        showToast(`⚠️ 年休假超额：已休 ${_q.used.toFixed(2)} 天 + 本次 ${_delta.toFixed(2)} 天 = ${_projected.toFixed(2)} 天，超过总额 ${_q.total} 天，无法登记`, true);
+        showToast(`⚠️ 年休假超额：已休 ${fracDays(_q.used)} 天 + 本次 ${fracDays(_delta)} 天 = ${fracDays(_projected)} 天，超过总额 ${fracDays(_q.total)} 天，无法登记`, true);
         return;
       }
     }
@@ -4378,7 +4393,7 @@ function cycleStatus(key) {
     if (next === 'leave') {
       const _q = getPersonLeaveQuota(currentPerson);
       if (_q.hasQuota && _q.used + 1 > _q.total + 0.0001) {
-        showToast(`⚠️ 年休假超额：已休 ${_q.used.toFixed(2)} 天，再休全天将达 ${(_q.used + 1).toFixed(2)} 天，超过总额 ${_q.total} 天，无法登记`, true);
+        showToast(`⚠️ 年休假超额：已休 ${fracDays(_q.used)} 天，再休全天将达 ${fracDays(_q.used + 1)} 天，超过总额 ${fracDays(_q.total)} 天，无法登记`, true);
         return;
       }
     }
@@ -4483,7 +4498,7 @@ function renderStats() {
   if (viewMode === 'single') {
     const data = loadData(displayPerson, ym());
     let c = {present:0,absent:0,late:0,leave:0,trip:0,overtime:0,overtime_day:0,manual:0,shift:0,discharge:0,prep_med:0};
-    let presentTotalH = 0, tripHours = 0, leaveHalf = 0, overtimeHours = 0;
+    let presentTotalH = 0, tripHours = 0, leaveHalf = 0, overtimeHours = 0, leaveDays = 0;
     let leaveSubtypeCount = {};
     let overtimeDayHalf = 0;
     let manualSheets = 0, manualDoses = 0;
@@ -4501,6 +4516,7 @@ function renderStats() {
             const sub = (!subtype || subtype === '年休假') ? '年休假' : subtype;
             if (sub === '年休假') {
               c.leave++;
+              leaveDays += annualLeaveDays(hours);
               if (hours === '半天' || hours === '半天4h' || hours === '半天3h') leaveHalf++;
             } else {
               const lc = leaveSubtypeCount[sub] || (leaveSubtypeCount[sub] = { count: 0, half: 0, half4h: 0, half3h: 0 });
@@ -4542,7 +4558,7 @@ function renderStats() {
         }
       }
     }
-    const leaveTotalDays = c.leave - leaveHalf * 0.5;
+    const leaveTotalDays = leaveDays;
     let otherLeaveHtml = '';
     for (const st of LEAVE_SUBTYPES) {
       if (st === '年休假') continue;
@@ -4556,7 +4572,7 @@ function renderStats() {
     const otLineHtml = otBalanceHtml(displayPerson);
     let statsHtml = `
       <div class="stat-item" style="background:#f0f4ff;padding:4px 10px;border-radius:6px;flex-basis:100%;">
-        📊 本月 休超时假共 <b>${presentTotalH}</b>h | 年休假共 <b>${leaveTotalDays}</b>天 | 超时共 <b>${overtimeLabel(overtimeHours)}</b>
+        📊 本月 休超时假共 <b>${presentTotalH}</b>h | 年休假共 <b>${fracDays(leaveTotalDays)}</b>天 | 超时共 <b>${overtimeLabel(overtimeHours)}</b>
       </div>
       ${otLineHtml}
       ${leaveQuotaHtml(displayPerson)}
@@ -4566,7 +4582,7 @@ function renderStats() {
       <div class="stat-item">休超时假 <b>${c.present}</b>次</div>
       <div class="stat-item">缺勤 <b>${c.absent}</b></div>
       <div class="stat-item">迟到 <b>${c.late}</b></div>
-      <div class="stat-item">年休假 <b>${c.leave}</b>天${leaveHalf > 0 ? ` (含${leaveHalf}个半天)` : ''}</div>
+      <div class="stat-item">年休假 <b>${fracDays(leaveDays)}</b>天${leaveHalf > 0 ? ` (含${leaveHalf}个半天)` : ''}</div>
       ${otherLeaveHtml}
       <div class="stat-item">公差 <b>${tripHours}</b>h</div>
       <div class="stat-item">超时 <b>${overtimeLabel(overtimeHours)}</b></div>
@@ -4609,7 +4625,7 @@ function renderStats() {
       }
       const eid = getEmployeeId(p);
       const pDisplay = eid ? `${p}(${eid})` : p;
-      html += `<div class="stat-item">${pDisplay}: 休超时假<b>${c.present}</b> 缺勤<b>${c.absent}</b> 迟到<b>${c.late}</b> 年休假<b>${c.leave}</b>${otherLeaveStr} 公差<b>${c.trip}</b> 加班<b>${c.overtime_day}</b> 手工单<b>${c.manual}</b> 班次<b>${c.shift}</b>${(() => { const q = getPersonLeaveQuota(p); return q.hasQuota ? ` 🏖<b>${q.used}/${q.total}</b>` : ''; })()}</div>`;
+      html += `<div class="stat-item">${pDisplay}: 休超时假<b>${c.present}</b> 缺勤<b>${c.absent}</b> 迟到<b>${c.late}</b> 年休假<b>${c.leave}</b>${otherLeaveStr} 公差<b>${c.trip}</b> 加班<b>${c.overtime_day}</b> 手工单<b>${c.manual}</b> 班次<b>${c.shift}</b>${(() => { const q = getPersonLeaveQuota(p); return q.hasQuota ? ` 🏖已休<b>${fracDays(q.used)}</b>/${fracDays(q.total)}天` : ''; })()}</div>`;
     }
     statsDiv.innerHTML = html;
   }
