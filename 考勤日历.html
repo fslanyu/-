@@ -2028,7 +2028,7 @@ function ensureOTHistory(person, year) {
 }
 
 // ── 云端同步状态（页头一行小字：☁ 已同步 / 未连接；未连接可点一下重试）──
-const APP_VER = '2026-11-25h';
+const APP_VER = '2026-11-25i';
 const APP_START = Date.now();
 function updateSyncBanner() {
   try {
@@ -3936,16 +3936,37 @@ function paintRestBar(rows) {
   if (_restRows === null) { el.innerHTML = '<b style="color:#1f5fbf;">🌤 今日休息 ' + md + '：</b><span style="color:#999;">离线中，联网后自动刷新</span>'; return; }
   const rowsUse = _restRows;
   const people = loadPeople();
-  const items = [];
+  const full = [], ot = [], half = [], seen = {};
   for (const r of rowsUse) {
     if (people.length && people.indexOf(r.person) < 0) continue;   // 名单外的脏数据不显示
-    const lab = restLabelOf(r.status_data);
-    if (lab) items.push(r.person + '（' + lab + '）');
+    let f = '', o = '', h = '';
+    for (const part of String(r.status_data || '').split(MULTI_SEP)) {
+      if (!part.trim()) continue;
+      const st = parseStatus(part);
+      if (!st) continue;
+      if (st.status === 'present') {                       // 休超时假（带小时）
+        const lab = getDisplayLabel(part);
+        o = o ? o + '、' + lab : lab;
+      } else if (st.status === 'leave') {
+        const lab = getDisplayLabel(part);
+        if (st.subtype === '休超时假') { o = o ? o + '、' + lab : lab; }        // 休假→子项里的休超时假
+        else if (!st.hours || st.hours === '全天') { f = f ? f + '、' + lab : lab; }   // 整天休假
+        else { h = h ? h + '、' + lab : lab; }                                  // 半天/半天4h/半天3h
+      }
+    }
+    if (f || o || h) seen[r.person] = 1;
+    if (f) full.push(r.person + '（' + f + '）');
+    if (o) ot.push(r.person + '（' + o + '）');
+    if (h) half.push(r.person + '（' + h + '）');
   }
-  items.sort(function (a, b) { return a.localeCompare(b, 'zh'); });
-  el.innerHTML = items.length
-    ? '<b style="color:#1f5fbf;">🌤 今日休息 ' + md + '：' + items.length + ' 人</b><br>' + items.join('、')
-    : '<b style="color:#1f5fbf;">🌤 今日休息 ' + md + '：</b><span style="color:#888;">今天没人休息</span>';
+  const n = Object.keys(seen).length;
+  if (!n) { el.innerHTML = '<b style="color:#1f5fbf;">🌤 今日休息 ' + md + '：</b><span style="color:#888;">今天没人休息</span>'; return; }
+  const sorter = function (a, b) { return a.localeCompare(b, 'zh'); };
+  let html = '<b style="color:#1f5fbf;">🌤 今日休息 ' + md + '：' + n + ' 人</b>';
+  if (full.length) html += '<br><span style="color:#2d8a2d;">🏖 全天休：</span>' + full.sort(sorter).join('、');
+  if (ot.length) html += '<br><span style="color:#c2410c;">⏱ 休超时假：</span>' + ot.sort(sorter).join('、');
+  if (half.length) html += '<br><span style="color:#7c3aed;">🕐 半天休：</span>' + half.sort(sorter).join('、');
+  el.innerHTML = html;
 }
 async function loadTodayRest(force) {
   const k = restTodayKey();
