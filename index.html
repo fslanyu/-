@@ -541,6 +541,9 @@ const SUPABASE_KEY = 'sb_publishable_iZI1HfOLJqFntgBxkjhD5g_DycELeiQ';
 // ★ 中转（镜像）地址：直连不通时按顺序改走这里（国内固定可达）。
 //   留空数组 = 只用直连。填法示例：['https://xxxx.apigw.tencentcs.com/release']
 const SUPABASE_MIRRORS = ['https://1511604044-dr3gvomlnj.ap-guangzhou.tencentscf.com'];
+// ★ 正式启用月份：2026-06 及更早是试填数据 —— 不计入年度统计、不再自动补传。
+//   （超时余额本来就从 2026-06 月底底数起算，不受影响；年休假"已休"是全年扫描，必须靠这个卡住）
+const ATT_START_MONTH = '2026-07';
 const _SB = !!(SUPABASE_URL && SUPABASE_KEY && !SUPABASE_URL.includes('xxxx'));
 
 if (_SB) {
@@ -1338,6 +1341,8 @@ if (_SB) {
     let localData = {};
     try { localData = JSON.parse(localStorage.getItem('att_' + person + '_' + ym) || '{}'); } catch(e) { return 0; }
     if (Object.keys(localData).length === 0) return 0;
+    // ★ 正式启用月(2026-07)之前的试填月份：一律不补传（从源头堵住"删了又冒出来"）
+    if (ym < ATT_START_MONTH) return 0;
     // ★ 补传前先刷新"删除墓碑"：防止本机 configMap 里的旧墓碑过期，把已删的日期又推回云端
     try {
       const _tr = await _sGET('config?select=value&key=eq.deleted_days');
@@ -1876,7 +1881,7 @@ function ensureOTHistory(person, year) {
 }
 
 // ── 云端同步状态（页头一行小字：☁ 已同步 / 未连接；未连接可点一下重试）──
-const APP_VER = '2026-11-25a';
+const APP_VER = '2026-11-25b';
 const APP_START = Date.now();
 function updateSyncBanner() {
   try {
@@ -2289,6 +2294,7 @@ function calcAnnualLeaveUsed(person, year) {
   let used = 0;
   for (let m = 1; m <= 12; m++) {
     const ym = year + '-' + String(m).padStart(2, '0');
+    if (ym < ATT_START_MONTH) continue;   // ★ 正式启用(2026-07)之前的试填月份不计入"已休"
     const data = loadData(person, ym);
     for (const [_, v] of Object.entries(data)) {
       const statuses = parseStatuses(v);
