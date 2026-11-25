@@ -1460,6 +1460,13 @@ if (_SB) {
     return pushed;
   };
 
+  // ★ 取某一天全员的考勤（今日休息人员展示用，任何人可读，已过滤墓碑）
+  window.__getDayStatuses = async function(dk) {
+    const ymStr = dk.slice(0, 7);
+    const rows = await _sGET(`attendance?select=person,status_data&year_month=eq.${ymStr}&day_key=eq.${dk}`);
+    return rows.filter(function (r) { return !_tombIncludes(r.person, ymStr, dk); });
+  };
+
   // ★ 补传全部人员全部月份（管理员手动触发）
   window.__pushAllLocalToCloud = async function(overwrite) {
     const keys = [];
@@ -1804,6 +1811,7 @@ if (_SB) {
           }
         }
         // 只有数据真的变了才渲染，否则跳过（避免无意义重建DOM）
+        try { loadTodayRest(); } catch(e) {}   // 今日休息人员（60秒节流，别人填的休假也能及时出现）
         if (changed) render();
       }, 30000);
     };
@@ -2020,7 +2028,7 @@ function ensureOTHistory(person, year) {
 }
 
 // ── 云端同步状态（页头一行小字：☁ 已同步 / 未连接；未连接可点一下重试）──
-const APP_VER = '2026-11-25g';
+const APP_VER = '2026-11-25h';
 const APP_START = Date.now();
 function updateSyncBanner() {
   try {
@@ -3904,6 +3912,71 @@ function showSwipeIndicator(text) {
 }
 
 // ── Render ──
+// ── 今日休息人员（任何人可见，包括未登录的管理员/员工）────────────
+// 口径：休超时假(present) + 各种休假(leave：年休假/婚假/陪产假/工伤假/丧假/育儿假/护理假/补休加班/休超时假)
+//      缺勤、迟到、公差、超时、加班、班次、手工单、发出院、挑药 都不算"休息"。
+function restTodayKey() { const d = new Date(); return dateKey(d.getFullYear(), d.getMonth() + 1, d.getDate()); }
+function restLabelOf(raw) {
+  const out = [];
+  for (const part of String(raw || '').split(MULTI_SEP)) {
+    if (!part.trim()) continue;
+    const st = parseStatus(part);
+    if (st && (st.status === 'leave' || st.status === 'present')) out.push(getDisplayLabel(part));
+  }
+  return out.join('、');
+}
+let _restRows = null, _restKey = '';
+function paintRestBar(rows) {
+  const el = document.getElementById('restBar');
+  if (!el) return;
+  const k = restTodayKey();
+  if (rows !== undefined) { _restRows = rows; _restKey = k; }   // 记住结果，页面重绘时先铺上，不闪"加载中"
+  const md = Number(k.slice(5, 7)) + '月' + Number(k.slice(8, 10)) + '日';
+  if (_restKey !== k) { el.innerHTML = '<b style="color:#1f5fbf;">🌤 今日休息 ' + md + '：</b><span style="color:#999;">加载中…</span>'; return; }
+  if (_restRows === null) { el.innerHTML = '<b style="color:#1f5fbf;">🌤 今日休息 ' + md + '：</b><span style="color:#999;">离线中，联网后自动刷新</span>'; return; }
+  const rowsUse = _restRows;
+  const people = loadPeople();
+  const items = [];
+  for (const r of rowsUse) {
+    if (people.length && people.indexOf(r.person) < 0) continue;   // 名单外的脏数据不显示
+    const lab = restLabelOf(r.status_data);
+    if (lab) items.push(r.person + '（' + lab + '）');
+  }
+  items.sort(function (a, b) { return a.localeCompare(b, 'zh'); });
+  el.innerHTML = items.length
+    ? '<b style="color:#1f5fbf;">🌤 今日休息 ' + md + '：' + items.length + ' 人</b><br>' + items.join('、')
+    : '<b style="color:#1f5fbf;">🌤 今日休息 ' + md + '：</b><span style="color:#888;">今天没人休息</span>';
+}
+async function loadTodayRest(force) {
+  const k = restTodayKey();
+  if (!force && loadTodayRest._k === k && Date.now() - (loadTodayRest._at || 0) < 60000) return;
+  loadTodayRest._k = k; loadTodayRest._at = Date.now();
+  try {
+    if (typeof window.__getDayStatuses !== 'function') {          // 纯本机模式：直接读本机名单与数据
+      const rowsLocal = [];
+      for (const p of loadPeople()) {
+        const d = loadData(p, k.slice(0, 7));
+        if (d[k]) rowsLocal.push({ person: p, status_data: d[k] });
+      }
+      paintRestBar(rowsLocal); return;
+    }
+    const rows = await window.__getDayStatuses(k);
+    try {
+      localStorage.setItem('att_rest_' + k, JSON.stringify(rows));
+      // 只留今天的缓存，避免越积越多
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const key = localStorage.key(i);
+        if (key && key.indexOf('att_rest_') === 0 && key !== 'att_rest_' + k) localStorage.removeItem(key);
+      }
+    } catch(e) {}
+    paintRestBar(rows);
+  } catch(e) {
+    let cached = null;
+    try { cached = JSON.parse(localStorage.getItem('att_rest_' + k) || 'null'); } catch(e2) {}
+    paintRestBar(cached);
+  }
+}
+
 function render() {
   // 页头同步状态 DOM 在下面 innerHTML 里重建，这里再补一次，保证每次都更新
   try { updateSyncBanner(); setTimeout(function(){ try { updateSyncBanner(); } catch(e) {} }, 0); } catch(e) {}
@@ -3968,6 +4041,8 @@ function render() {
         ${viewTarget ? `<span style="font-size:11px;color:#e67e22;">👁 只读查看</span>` : ''}
       `}
     </div>
+
+    <div id="restBar" style="margin:8px 12px 2px;padding:9px 11px;background:#f5f8ff;border:1px solid #dbe4ff;border-radius:10px;font-size:13px;line-height:1.8;color:#333;">🌤 今日休息：加载中…</div>
 
     <div class="legend">
       <span style="color:#888;font-size:12px;">${isAdmin ? '点击日期切换：' : (viewTarget ? '👁 只读查看 ' + viewTarget + ' 的考勤' : '点击日期申报（可叠加多种状态）：')}</span>
@@ -4043,6 +4118,7 @@ function render() {
   }
   renderDaysGrid();
   renderStats();
+  try { paintRestBar(); loadTodayRest(); } catch(e) {}   // 今日休息人员（任何人可见）
 
   document.addEventListener('keydown', escHandler);
 
