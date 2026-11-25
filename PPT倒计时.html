@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PPT 倒计时</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: transparent;
+  height: 100vh;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* ── The draggable panel ── */
+.panel {
+  position: fixed;
+  top: 20px; right: 20px;
+  width: 220px;
+  background: rgba(20, 20, 30, 0.92);
+  backdrop-filter: blur(12px);
+  border: 1px solid #333;
+  border-radius: 14px;
+  padding: 16px 18px;
+  color: #fff;
+  cursor: move;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  transition: border-radius 0.25s, border-color 0.3s, box-shadow 0.3s;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.panel:hover { border-color: #555; }
+
+/* State colors */
+.panel.warning { border-color: #f59e0b; box-shadow: 0 0 20px rgba(245,158,11,0.25); }
+.panel.overtime { border-color: #ef4444; box-shadow: 0 0 20px rgba(239,68,68,0.3); animation: pulse-border 0.8s infinite; }
+.panel.finished { border-color: #22c55e; box-shadow: 0 0 20px rgba(34,197,94,0.25); }
+
+@keyframes pulse-border {
+  0%, 100% { box-shadow: 0 0 15px rgba(239,68,68,0.3); }
+  50% { box-shadow: 0 0 30px rgba(239,68,68,0.6); }
+}
+
+/* ── Time display ── */
+.time-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 2px;
+}
+.time {
+  font-size: 52px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 2px;
+  line-height: 1;
+  transition: color 0.3s;
+}
+.time .colon { opacity: 0.4; }
+.warning .time { color: #f59e0b; }
+.overtime .time { color: #ef4444; }
+.finished .time { color: #22c55e; }
+
+/* ── Progress bar ── */
+.bar-wrap {
+  height: 4px;
+  background: #2a2a3a;
+  border-radius: 2px;
+  overflow: hidden;
+}
+.bar-inner {
+  height: 100%;
+  background: #3b82f6;
+  border-radius: 2px;
+  transition: width 1s linear, background 0.3s;
+}
+.warning .bar-inner { background: #f59e0b; }
+.overtime .bar-inner { background: #ef4444; }
+.finished .bar-inner { background: #22c55e; }
+
+/* ── Status text ── */
+.status {
+  font-size: 11px;
+  text-align: center;
+  color: #6b7280;
+  letter-spacing: 1px;
+  transition: color 0.3s;
+}
+.warning .status { color: #f59e0b; }
+.overtime .status { color: #ef4444; }
+.finished .status { color: #22c55e; }
+
+/* ── Buttons ── */
+.btns {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+}
+.btn {
+  width: 32px; height: 32px;
+  border: 1px solid #333;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.05);
+  color: #aaa;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+.btn:hover { background: rgba(255,255,255,0.1); color: #fff; border-color: #555; }
+.btn.play { background: #238636; border-color: #238636; color: #fff; font-size: 13px; }
+.btn.play:hover { background: #2ea043; }
+.btn.play.pause { background: #d29922; border-color: #d29922; }
+.btn.play.pause:hover { background: #e2a62a; }
+.btn.corner { font-size: 11px; }
+
+/* ── Preset & settings row (hidden when running) ── */
+.set-row {
+  display: flex; gap: 4px; justify-content: center;
+  transition: opacity 0.2s;
+}
+.set-row.hidden { opacity: 0; pointer-events: none; }
+.preset {
+  padding: 2px 7px; border: 1px solid #2a2a3a; border-radius: 6px;
+  background: transparent; color: #888; font-size: 10px;
+  cursor: pointer; transition: all 0.15s; font-family: inherit;
+}
+.preset:hover { border-color: #555; color: #ccc; }
+.preset.active { border-color: #3b82f6; color: #58a6ff; background: rgba(59,130,246,0.1); }
+.custom-input {
+  display: flex; gap: 2px; align-items: center;
+}
+.custom-input input {
+  width: 32px; padding: 2px 4px;
+  border: 1px solid #2a2a3a; border-radius: 4px;
+  background: transparent; color: #aaa; font-size: 10px;
+  text-align: center; font-family: inherit;
+}
+.custom-input input:focus { outline: none; border-color: #555; }
+.custom-input .sep { font-size: 10px; color: #555; }
+
+/* ── Corner buttons (visible on hover) ── */
+.corners {
+  position: fixed; inset: 0; pointer-events: none; z-index: 9998;
+}
+.corner-btn {
+  position: absolute; pointer-events: auto;
+  width: 24px; height: 24px;
+  border: 1px dashed #444;
+  border-radius: 6px;
+  background: rgba(20,20,30,0.5);
+  color: #555;
+  font-size: 10px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; transition: opacity 0.2s;
+}
+.corners:hover .corner-btn { opacity: 1; }
+.corner-btn:hover { background: rgba(59,130,246,0.2); border-color: #58a6ff; color: #58a6ff; }
+.corner-btn.tl { top: 10px; left: 10px; }
+.corner-btn.tr { top: 10px; right: 10px; }
+.corner-btn.bl { bottom: 10px; left: 10px; }
+.corner-btn.br { bottom: 10px; right: 10px; }
+
+/* ── Fullscreen: hide corner buttons, show only clock ── */
+body.fullscreen .corners { display: none; }
+body.fullscreen .panel {
+  inset: 0; width: auto; border-radius: 0; border: none;
+  background: #0d1117; cursor: default;
+  justify-content: center; gap: 20px;
+}
+body.fullscreen .panel .time { font-size: 18vmin; }
+body.fullscreen .panel .bar-wrap { max-width: 60vw; align-self: center; width: 60vw; }
+body.fullscreen .panel .status { font-size: 16px; }
+body.fullscreen .panel .btns,
+body.fullscreen .panel .set-row { display: none; }
+
+@media (max-width: 400px) {
+  .panel { width: 180px; padding: 12px 14px; gap: 8px; }
+  .time { font-size: 42px; }
+}
+</style>
+</head>
+<body>
+
+<!-- Corner snap buttons (hover to reveal) -->
+<div class="corners" id="corners">
+  <button class="corner-btn tl" onclick="snapTo('tl')" title="左上角">↖</button>
+  <button class="corner-btn tr" onclick="snapTo('tr')" title="右上角">↗</button>
+  <button class="corner-btn bl" onclick="snapTo('bl')" title="左下角">↙</button>
+  <button class="corner-btn br" onclick="snapTo('br')" title="右下角">↘</button>
+</div>
+
+<div class="panel" id="panel">
+  <!-- Presets & custom input -->
+  <div class="set-row" id="setRow">
+    <button class="preset" onclick="setPreset(1)">1分</button>
+    <button class="preset" onclick="setPreset(3)">3分</button>
+    <button class="preset active" onclick="setPreset(5)">5分</button>
+    <button class="preset" onclick="setPreset(10)">10分</button>
+    <button class="preset" onclick="setPreset(15)">15分</button>
+    <span class="custom-input">
+      <input type="number" id="minInput" value="5" min="0" max="99" title="分">
+      <span class="sep">:</span>
+      <input type="number" id="secInput" value="0" min="0" max="59" title="秒">
+    </span>
+  </div>
+
+  <!-- Time -->
+  <div class="time-row">
+    <span class="time" id="timeDisplay">
+      <span id="minDisplay">05</span><span class="colon">:</span><span id="secDisplay">00</span>
+    </span>
+  </div>
+
+  <!-- Progress bar -->
+  <div class="bar-wrap">
+    <div class="bar-inner" id="barInner" style="width: 0%"></div>
+  </div>
+
+  <!-- Status -->
+  <div class="status" id="statusLabel">准备开始</div>
+
+  <!-- Buttons -->
+  <div class="btns" id="btnRow">
+    <button class="btn play" id="btnStart" onclick="toggleTimer()">▶</button>
+    <button class="btn" onclick="resetTimer()">↺</button>
+    <button class="btn" onclick="toggleFullscreen()">⛶</button>
+    <button class="btn corner" onclick="cycleCorner()" title="切换角落">⊞</button>
+  </div>
+</div>
+
+<script>
+// ── State ──
+let totalSeconds = 5 * 60;
+let remainingSeconds = 5 * 60;
+let timerInterval = null;
+let running = false;
+let currentPreset = 5;
+let audioCtx = null;
+let currentCorner = 'tr'; // default: top-right
+const cornerOrder = ['tl', 'tr', 'bl', 'br'];
+
+// ── DOM refs ──
+const panel = document.getElementById('panel');
+const minDisplay = document.getElementById('minDisplay');
+const secDisplay = document.getElementById('secDisplay');
+const minInput = document.getElementById('minInput');
+const secInput = document.getElementById('secInput');
+const statusLabel = document.getElementById('statusLabel');
+const btnStart = document.getElementById('btnStart');
+const barInner = document.getElementById('barInner');
+const setRow = document.getElementById('setRow');
+
+// ── Dragging ──
+let dragging = false;
+let dragX, dragY, panelX, panelY;
+
+panel.addEventListener('mousedown', (e) => {
+  if (e.target.closest('button') || e.target.closest('input')) return;
+  dragging = true;
+  const rect = panel.getBoundingClientRect();
+  dragX = e.clientX - rect.left;
+  dragY = e.clientY - rect.top;
+  panel.style.transition = 'none';
+  e.preventDefault();
+});
+
+document.addEventListener('mousemove', (e) => {
+  if (!dragging) return;
+  panel.style.right = 'auto';
+  panel.style.bottom = 'auto';
+  panel.style.top = 'auto';
+  panel.style.left = 'auto';
+  panel.style.left = Math.min(window.innerWidth - 40, Math.max(0, e.clientX - dragX)) + 'px';
+  panel.style.top = Math.min(window.innerHeight - 40, Math.max(0, e.clientY - dragY)) + 'px';
+  currentCorner = null;
+});
+
+document.addEventListener('mouseup', () => {
+  if (dragging) {
+    dragging = false;
+    panel.style.transition = '';
+  }
+});
+
+// ── Corner snapping ──
+function snapTo(corner) {
+  currentCorner = corner;
+  const gap = 16;
+  panel.style.transition = 'all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1.2)';
+
+  // Clear all position props
+  panel.style.top = 'auto';
+  panel.style.bottom = 'auto';
+  panel.style.left = 'auto';
+  panel.style.right = 'auto';
+
+  switch (corner) {
+    case 'tl': panel.style.top = gap + 'px'; panel.style.left = gap + 'px'; break;
+    case 'tr': panel.style.top = gap + 'px'; panel.style.right = gap + 'px'; break;
+    case 'bl': panel.style.bottom = gap + 'px'; panel.style.left = gap + 'px'; break;
+    case 'br': panel.style.bottom = gap + 'px'; panel.style.right = gap + 'px'; break;
+  }
+  setTimeout(() => { panel.style.transition = ''; }, 350);
+}
+
+function cycleCorner() {
+  const idx = cornerOrder.indexOf(currentCorner);
+  const next = cornerOrder[(idx + 1) % 4];
+  snapTo(next);
+}
+
+// ── Display ──
+function updateDisplay() {
+  const m = Math.floor(remainingSeconds / 60);
+  const s = remainingSeconds % 60;
+  minDisplay.textContent = String(m).padStart(2, '0');
+  secDisplay.textContent = String(s).padStart(2, '0');
+
+  // Progress bar
+  const progress = totalSeconds > 0 ? ((totalSeconds - remainingSeconds) / totalSeconds) * 100 : 0;
+  barInner.style.width = Math.min(100, progress) + '%';
+}
+
+function updateBodyState() {
+  panel.classList.remove('warning', 'overtime', 'finished');
+  if (running && remainingSeconds <= 0) {
+    panel.classList.add('finished');
+    statusLabel.textContent = '⏰ 时间到！';
+  } else if (running && remainingSeconds <= 30) {
+    panel.classList.add('overtime');
+    statusLabel.textContent = '⚠ 即将结束';
+  } else if (running && remainingSeconds <= 120) {
+    panel.classList.add('warning');
+    statusLabel.textContent = '剩余不到 2 分钟';
+  } else if (running) {
+    statusLabel.textContent = '计时中';
+  } else {
+    statusLabel.textContent = '准备开始';
+  }
+}
+
+// ── Timer logic ──
+function tick() {
+  if (remainingSeconds > 0) {
+    remainingSeconds--;
+    updateDisplay();
+    updateBodyState();
+    if (remainingSeconds <= 5 && remainingSeconds > 0) beep(800, 0.06);
+  } else {
+    pauseTimer();
+    beep(600, 0.25);
+    setTimeout(() => beep(800, 0.25), 350);
+    setTimeout(() => beep(1000, 0.4), 700);
+  }
+}
+
+function startTimer() {
+  if (running) return;
+  if (remainingSeconds <= 0) return;
+  running = true;
+  timerInterval = setInterval(tick, 1000);
+  btnStart.textContent = '⏸';
+  btnStart.classList.add('pause');
+  setRow.classList.add('hidden');
+  updateBodyState();
+}
+
+function pauseTimer() {
+  if (!running) return;
+  running = false;
+  clearInterval(timerInterval);
+  timerInterval = null;
+  btnStart.textContent = '▶';
+  btnStart.classList.remove('pause');
+}
+
+function toggleTimer() {
+  if (running) pauseTimer();
+  else startTimer();
+}
+
+function resetTimer() {
+  pauseTimer();
+  remainingSeconds = totalSeconds;
+  updateDisplay();
+  updateBodyState();
+  panel.classList.remove('warning', 'overtime', 'finished');
+  statusLabel.textContent = '准备开始';
+  btnStart.textContent = '▶';
+  btnStart.classList.remove('pause');
+  setRow.classList.remove('hidden');
+}
+
+// ── Time setting ──
+function applyTime() {
+  const m = parseInt(minInput.value) || 0;
+  const s = parseInt(secInput.value) || 0;
+  totalSeconds = Math.max(1, m * 60 + s);
+  remainingSeconds = totalSeconds;
+  currentPreset = null;
+  updatePresetHighlight();
+  updateDisplay();
+  updateBodyState();
+  panel.classList.remove('warning', 'overtime', 'finished');
+  statusLabel.textContent = '准备开始';
+  btnStart.textContent = '▶';
+  btnStart.classList.remove('pause');
+  setRow.classList.remove('hidden');
+}
+
+function setPreset(minutes) {
+  pauseTimer();
+  currentPreset = minutes;
+  totalSeconds = minutes * 60;
+  remainingSeconds = totalSeconds;
+  minInput.value = minutes;
+  secInput.value = '0';
+  updatePresetHighlight();
+  updateDisplay();
+  updateBodyState();
+  panel.classList.remove('warning', 'overtime', 'finished');
+  statusLabel.textContent = '准备开始';
+  btnStart.textContent = '▶';
+  btnStart.classList.remove('pause');
+  setRow.classList.remove('hidden');
+}
+
+function updatePresetHighlight() {
+  document.querySelectorAll('.preset').forEach(btn => {
+    const val = parseInt(btn.textContent);
+    btn.classList.toggle('active', val === currentPreset);
+  });
+}
+
+// Listen for manual input changes
+minInput.addEventListener('change', applyTime);
+secInput.addEventListener('change', applyTime);
+// Also apply on Enter
+minInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') applyTime(); });
+secInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') applyTime(); });
+
+// ── Audio ──
+function beep(freq, duration) {
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.frequency.value = freq;
+    osc.type = 'sine';
+    gain.gain.value = 0.12;
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+    osc.start();
+    osc.stop(audioCtx.currentTime + duration);
+  } catch(e) {}
+}
+
+// ── Fullscreen ──
+function toggleFullscreen() {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen().then(() => {
+      document.body.classList.add('fullscreen');
+    }).catch(() => {});
+  } else {
+    document.exitFullscreen().then(() => {
+      document.body.classList.remove('fullscreen');
+    }).catch(() => {});
+  }
+}
+
+document.addEventListener('fullscreenchange', () => {
+  document.body.classList.toggle('fullscreen', !!document.fullscreenElement);
+});
+
+// ── Keyboard ──
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT') return;
+  switch (e.code) {
+    case 'Space': e.preventDefault(); toggleTimer(); break;
+    case 'KeyR': resetTimer(); break;
+    case 'KeyF': toggleFullscreen(); break;
+    case 'KeyC': cycleCorner(); break;
+    case 'ArrowUp': if (!running) { totalSeconds = Math.min(99*60, totalSeconds+60); remainingSeconds=totalSeconds; currentPreset=null; updatePresetHighlight(); minInput.value=Math.floor(totalSeconds/60); secInput.value=totalSeconds%60; updateDisplay(); } break;
+    case 'ArrowDown': if (!running) { totalSeconds = Math.max(60, totalSeconds-60); remainingSeconds=totalSeconds; currentPreset=null; updatePresetHighlight(); minInput.value=Math.floor(totalSeconds/60); secInput.value=totalSeconds%60; updateDisplay(); } break;
+    case 'Digit1': setPreset(1); break;
+    case 'Digit3': setPreset(3); break;
+    case 'Digit5': setPreset(5); break;
+    case 'Digit0': setPreset(10); break;
+  }
+});
+
+// ── Init ──
+snapTo('tr');
+updateDisplay();
+updatePresetHighlight();
+</script>
+</body>
+</html>

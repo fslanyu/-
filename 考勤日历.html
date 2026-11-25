@@ -756,9 +756,41 @@ if (_SB) {
     _C.configMap["deleted_days"] = sv;
     _sUpsertConfig("deleted_days", sv, "删除墓碑").catch(() => {});
   }
+  // ★ 稳健墓碑写入（2026-11-25）：先在云端读最新 → 合并 → 写回 → 回读校验。
+  //   旧写法是把本机内存里的那一整份 JSON 覆盖上去：两台设备(手机+PC)同时删东西时，
+  //   后写的那台会拿自己的旧副本把别人的墓碑整块冲掉，被删的日期于是又被"补传"长回来。
+  window.__tombAddMany = async function(person, ym, dks) {
+    const k = person + "|" + ym;
+    const list = (dks || []).filter(Boolean);
+    if (!list.length) return true;
+    const t0 = _tombs(), a0 = t0[k] || [];
+    for (const d of list) if (a0.indexOf(d) < 0) a0.push(d);
+    t0[k] = a0; _C.configMap["deleted_days"] = JSON.stringify(t0);   // 本机立刻生效
+    return await _sWriteRetry('删除墓碑', async () => {
+      let cur = null;
+      try {
+        const r = await _sGET('config?select=value&key=eq.deleted_days');
+        if (r.length) cur = JSON.parse(r[0].value || '{}') || {};
+      } catch (e) {}
+      if (!cur) { try { cur = JSON.parse(_C.configMap["deleted_days"] || '{}') || {}; } catch (e) { cur = {}; } }
+      const arr = cur[k] || [];
+      for (const d of list) if (arr.indexOf(d) < 0) arr.push(d);
+      cur[k] = arr;
+      const sv = JSON.stringify(cur);
+      const m = 'key=eq.deleted_days';
+      const ex = await _sGET('config?select=key&' + m);
+      ex.length ? await _sPATCH('config', m, { value: sv }) : await _sPOST('config', { key: 'deleted_days', value: sv });
+      _C.configMap["deleted_days"] = sv;
+      const chk = await _sGET('config?select=value&' + m);            // 回读确认
+      let back = {};
+      try { back = JSON.parse((chk[0] && chk[0].value) || '{}') || {}; } catch (e) {}
+      if (!Array.isArray(back[k]) || list.some(function (d) { return back[k].indexOf(d) < 0; })) throw new Error('墓碑回读不一致');
+    });
+  };
   window.__tombAdd = function(person, ym, dk) {
     const t = _tombs(), k = person + "|" + ym, a = t[k] || [];
-    if (a.indexOf(dk) < 0) { a.push(dk); t[k] = a; _tombSave(t); }
+    if (a.indexOf(dk) < 0) { a.push(dk); t[k] = a; _C.configMap["deleted_days"] = JSON.stringify(t); }
+    window.__tombAddMany(person, ym, [dk]).catch(function () {});     // 合并式写云端，绝不整块覆盖
   };
   window.__tombRemove = function(person, ym, dk) {
     const t = _tombs(), k = person + "|" + ym, a = t[k];
@@ -1358,9 +1390,9 @@ if (_SB) {
   // ★ 补传「某个人本机所有月份」的考勤到云端（只补云端缺失的，绝不覆盖云端已有数据）
   //   员工端打开 App / 切换身份时自动调用一次：
   //   防止某次保存上传失败后，记录只留在手机上没进云端，导出时缺数据
-  window.__pushPersonAllMonths = async function(person, overwrite) {
+  window.__pushPersonAllMonths = async function(person, overwrite, allMonths) {
     const prefix = 'att_' + person + '_';
-    const months = [];
+    let months = [];
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
       if (k && k.indexOf(prefix) === 0 && /^\d{4}-\d{2}$/.test(k.slice(prefix.length))) {
@@ -1368,11 +1400,57 @@ if (_SB) {
       }
     }
     months.sort();
+    // ★ 2026-11-25：自动补传只补「上月 + 当月」。
+    //   历史月份的本机缓存可能是很旧的（甚至是被删掉的日期），自动推上去＝把删掉的数据又长回来
+    //   （梁晓燕 6 月年休假、欧阳芳 8/14 超时就是这么回来的）。历史月份要补，走管理员手动"补传"。
+    if (!allMonths) {
+      const now = new Date();
+      const nowYm = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+      const pv = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const prevYm = pv.getFullYear() + '-' + String(pv.getMonth() + 1).padStart(2, '0');
+      months = months.filter(function (m) { return m === nowYm || m === prevYm; });
+    }
     let total = 0;
     for (const ms of months) {
       try { total += await window.__pushLocalToCloud(person, ms, !!overwrite); } catch(e) {}
     }
     return total;
+  };
+
+  // ★ 管理员「清空本月」：先立墓碑 → 删云端 → 清本机（2026-11-25 新增）
+  //   以前 clearMonth() 只删本机 localStorage，云端一行没动：刷新一次云端数据就全回来了，
+  //   导出又照云端算 —— 这就是"删掉了还出现"的另一条路。
+  window.__clearPersonMonthCloud = async function(person, ymStr) {
+    const enc = encodeURIComponent;
+    const keys = new Set();
+    let cloudErr = '';
+    try {
+      const rows = await _sGET(`attendance?select=day_key&person=eq.${enc(person)}&year_month=eq.${ymStr}`);
+      rows.forEach(function (r) { keys.add(r.day_key); });
+    } catch (e) { cloudErr = String((e && e.message) || e); }
+    try {
+      const loc = JSON.parse(localStorage.getItem('att_' + person + '_' + ymStr) || '{}');
+      Object.keys(loc).forEach(function (k) { keys.add(k); });
+    } catch (e) {}
+    Object.keys(_C.dataCache[person + '|' + ymStr] || {}).forEach(function (k) { keys.add(k); });
+    const list = Array.from(keys);
+    if (list.length) await window.__tombAddMany(person, ymStr, list);   // 先立墓碑，别人补传也推不回来
+    let delErr = '';
+    if (!cloudErr) {
+      for (const dk of list) {
+        try {
+          await _sDELETE('attendance', `person=eq.${enc(person)}&year_month=eq.${ymStr}&day_key=eq.${enc(dk)}`);
+        } catch (e) { delErr = String((e && e.message) || e); }
+      }
+      try { await _sDELETE('notes', `person=eq.${enc(person)}&year_month=eq.${ymStr}`); } catch (e) {}
+    }
+    try {
+      localStorage.removeItem('att_' + person + '_' + ymStr);
+      localStorage.removeItem('att_note_' + person + '_' + ymStr);
+    } catch (e) {}
+    delete _C.dataCache[person + '|' + ymStr];
+    delete _C.noteCache[person + '|' + ymStr];
+    return { days: list.length, cloudErr: cloudErr, delErr: delErr };
   };
 
   // 延迟安装 init 覆写（等第二个 script 块的 init 定义好）
@@ -1798,7 +1876,7 @@ function ensureOTHistory(person, year) {
 }
 
 // ── 云端同步状态（页头一行小字：☁ 已同步 / 未连接；未连接可点一下重试）──
-const APP_VER = '2026-11-05a';
+const APP_VER = '2026-11-25a';
 const APP_START = Date.now();
 function updateSyncBanner() {
   try {
@@ -4659,13 +4737,25 @@ function goToday() {
 }
 
 // ── Batch / Clear (admin only) ──
-function clearMonth() {
+async function clearMonth() {
   if (!isAdmin) return;
-  if (!confirm(`确认清空「${currentPerson}」${currentYear}年${currentMonth}月的考勤数据？`)) return;
-  localStorage.removeItem(storageKey(currentPerson, ym()));
-  localStorage.removeItem(noteKey(currentPerson, ym()));
+  if (!confirm(`确认清空「${currentPerson}」${currentYear}年${currentMonth}月的考勤数据？\n\n会同时删除云端数据并记下"删除墓碑"，之后任何手机补传都不会再把它推回来。`)) return;
+  const _p = currentPerson, _m = ym();
   activeDate=null;
   document.getElementById('notePanel')?.classList.remove('active');
+  if (typeof window.__clearPersonMonthCloud === 'function') {
+    showToast('☁️ 正在清空（本机+云端）…');
+    try {
+      const r = await window.__clearPersonMonthCloud(_p, _m);
+      if (r && (r.cloudErr || r.delErr)) showToast('⚠️ 云端没删干净：' + (r.cloudErr || r.delErr), true);
+      else showToast(`✅ 已清空 ${r ? r.days : 0} 天（本机+云端+墓碑）`);
+    } catch (e) {
+      showToast('❌ 清空失败：' + (e.message || e), true);
+    }
+  } else {
+    localStorage.removeItem(storageKey(_p, _m));
+    localStorage.removeItem(noteKey(_p, _m));
+  }
   render();
 }
 
