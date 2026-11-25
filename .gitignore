@@ -5,7 +5,7 @@
 !/考勤日历-supabase.html
 !/考勤日历-supabase-setup.sql
 !/考勤日历服务器.py
-!/考勤日历-render/
+# 考勤日历-render 是本地遗留的子仓库，不要提交（提交成 gitlink 会让 Pages 构建失败）
 !/考勤日历.db
 !/supabase-shim.js
 !/PPT倒计时.html
