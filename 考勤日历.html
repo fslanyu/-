@@ -1247,7 +1247,7 @@ if (_SB) {
   //   使 loadData 不再回退到本机 localStorage 的旧数据 —— 导出结果 = 云端全量。
   window.__preloadYearData = async function(yearStr) {
     const rows = await _sGETAll(
-      `attendance?select=person,year_month,day_key,status_data&year_month=gte.${yearStr}-01&year_month=lte.${yearStr}-12`,
+      `attendance?select=person,year_month,day_key,status_data&and=(year_month.gte.${yearStr}-01,year_month.lte.${yearStr}-12)`,
       'person,year_month,day_key'
     );
     const byKey = {};
@@ -1276,7 +1276,7 @@ if (_SB) {
   window.__preloadPersonYear = async function(person, yearStr) {
     const enc = encodeURIComponent;
     const rows = await _sGETAll(
-      `attendance?select=year_month,day_key,status_data&person=eq.${enc(person)}&year_month=gte.${yearStr}-01&year_month=lte.${yearStr}-12`,
+      `attendance?select=year_month,day_key,status_data&person=eq.${enc(person)}&and=(year_month.gte.${yearStr}-01,year_month.lte.${yearStr}-12)`,
       'year_month,day_key'
     );
     const byMonth = {};
@@ -1456,6 +1456,45 @@ if (_SB) {
     delete _C.dataCache[person + '|' + ymStr];
     delete _C.noteCache[person + '|' + ymStr];
     return { days: list.length, cloudErr: cloudErr, delErr: delErr };
+  };
+
+  // ★ 清除「某月及之前」的全部数据（2026-11-25 重写）：先立墓碑 → 分页删云端 → 清本机。
+  //   旧版 clearJuneData 直接 fetch 直连地址、不看 r.ok、不立墓碑：
+  //   国内直连常被掐 → 删失败也提示"已清除"，随后各手机补传又推回来，所以 6 月数据总"复活"。
+  window.__purgeBefore = async function(cutoff) {
+    const rows = await _sGETAll(`attendance?select=id,person,year_month,day_key&year_month=lte.${cutoff}`, 'id');
+    const byPM = {};
+    for (const r of rows) {
+      const k = r.person + '|' + r.year_month;
+      (byPM[k] = byPM[k] || []).push(r.day_key);
+    }
+    for (const k of Object.keys(byPM)) {                   // ① 先立墓碑，谁都推不回来
+      const i = k.lastIndexOf('|');
+      await window.__tombAddMany(k.slice(0, i), k.slice(i + 1), byPM[k]);
+    }
+    for (let i = 0; i < rows.length; i += 100) {           // ② 删云端（走中转/直连，r.ok 已校验，失败会抛）
+      const ids = rows.slice(i, i + 100).map(function (r) { return r.id; });
+      await _sDELETE('attendance', 'id=in.(' + ids.join(',') + ')');
+    }
+    let notes = 0;
+    try {
+      const nr = await _sGETAll(`notes?select=id&year_month=lte.${cutoff}`, 'id');
+      notes = nr.length;
+      for (let i = 0; i < nr.length; i += 100) {
+        const ids = nr.slice(i, i + 100).map(function (r) { return r.id; });
+        await _sDELETE('notes', 'id=in.(' + ids.join(',') + ')');
+      }
+    } catch (e) {}
+    let lc = 0;                                            // ③ 清本机缓存
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i);
+      const m = key.match(/^(?:att|att_note)_([\u4e00-\u9fa5a-zA-Z0-9]+)_(\d{4}-\d{2})$/);
+      if (m && m[2] <= cutoff) { localStorage.removeItem(key); lc++; }
+    }
+    for (const ck of Object.keys(_C.dataCache)) { const mm = ck.split('|')[1]; if (mm <= cutoff) delete _C.dataCache[ck]; }
+    for (const ck of Object.keys(_C.noteCache)) { const mm = ck.split('|')[1]; if (mm <= cutoff) delete _C.noteCache[ck]; }
+    try { const t = await _sGET('config?select=value&key=eq.deleted_days'); if (t.length) _C.configMap['deleted_days'] = t[0].value; } catch (e) {}
+    return { deleted: rows.length, notes: notes, local: lc, groups: Object.keys(byPM).length };
   };
 
   // 延迟安装 init 覆写（等第二个 script 块的 init 定义好）
@@ -1881,7 +1920,7 @@ function ensureOTHistory(person, year) {
 }
 
 // ── 云端同步状态（页头一行小字：☁ 已同步 / 未连接；未连接可点一下重试）──
-const APP_VER = '2026-11-25b';
+const APP_VER = '2026-11-25c';
 const APP_START = Date.now();
 function updateSyncBanner() {
   try {
@@ -4219,59 +4258,16 @@ function clearJuneData() {
     render();
     return;
   }
-  // Supabase 模式：删除云端数据
+  // Supabase 模式：删除云端数据（★ 2026-11-25 重写：走中转/直连统一写入+查 r.ok+先立墓碑）
   (async () => {
     showToast('⏳ 正在清除云端数据...');
-    let deleted = 0;
     try {
-      const enc = encodeURIComponent;
-      // 1. 获取所有 <= 2026-06 的考勤记录
-      const attRows = await _sGET('attendance?select=id,year_month&year_month=lte.2026-06&order=id');
-      // 分批删除（每批最多删约 500 条，Supabase DELETE 有限制）
-      for (let i = 0; i < attRows.length; i += 500) {
-        const batch = attRows.slice(i, i + 500);
-        const ids = batch.map(r => r.id);
-        const filter = 'id=in.(' + ids.join(',') + ')';
-        await fetch(`${SUPABASE_URL}/rest/v1/attendance?${filter}`, {
-          method: 'DELETE',
-          headers: { apikey: SUPABASE_KEY, Prefer: 'return=minimal' }
-        });
-        deleted += batch.length;
-      }
-      // 2. 删除备注
-      const noteRows = await _sGET('notes?select=id&year_month=lte.2026-06&order=id');
-      for (let i = 0; i < noteRows.length; i += 500) {
-        const batch = noteRows.slice(i, i + 500);
-        const ids = batch.map(r => r.id);
-        const filter = 'id=in.(' + ids.join(',') + ')';
-        await fetch(`${SUPABASE_URL}/rest/v1/notes?${filter}`, {
-          method: 'DELETE',
-          headers: { apikey: SUPABASE_KEY, Prefer: 'return=minimal' }
-        });
-      }
-      // 3. 清除 localStorage 对应月份
-      let lc = 0;
-      for (let i = localStorage.length - 1; i >= 0; i--) {
-        const key = localStorage.key(i);
-        const m = key.match(/^att_[\u4e00-\u9fa5a-zA-Z0-9]+_(\d{4}-\d{2})$/);
-        const nm = key.match(/^att_note_[\u4e00-\u9fa5a-zA-Z0-9]+_(\d{4}-\d{2})$/);
-        const ym = m ? m[1] : (nm ? nm[1] : null);
-        if (ym && ym <= '2026-06') {
-          localStorage.removeItem(key);
-          lc++;
-        }
-      }
-      showToast(`✅ 已清除 ${deleted} 条云端记录 + ${lc} 条本地缓存`);
-      // 清空内存缓存
-      for (const ck of Object.keys(_C.dataCache)) {
-        if (ck.endsWith('|2026-06') || ck.split('|')[1] < '2026-06') delete _C.dataCache[ck];
-      }
-      for (const ck of Object.keys(_C.noteCache)) {
-        if (ck.endsWith('|2026-06') || ck.split('|')[1] < '2026-06') delete _C.noteCache[ck];
-      }
+      if (typeof window.__purgeBefore !== 'function') throw new Error('云端模块未就绪');
+      const r = await window.__purgeBefore('2026-06');
+      showToast(`✅ 已清除：云端 ${r.deleted} 条 + 备注 ${r.notes} 条 + 本机 ${r.local} 条（墓碑 ${r.groups} 组，已防回灌）`);
       render();
     } catch(e) {
-      showToast('❌ 清除失败：' + e.message, true);
+      showToast('❌ 清除失败：' + (e.message || e), true);
       console.error(e);
     }
   })();
