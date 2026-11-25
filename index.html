@@ -1736,6 +1736,17 @@ if (_SB) {
         // 轮询当前身份 + 查看目标的数据
         const pollPeople = viewTarget ? [currentPerson, viewTarget] : [currentPerson];
         let pollOk = false, changed = false;
+        // ★ 每 60 秒同步一次「删除墓碑」（2026-11-25g）：
+        //   管理员在别的手机/PC 删掉某天，云端的行会消失，但本机 configMap 里的墓碑
+        //   是打开页面时读的，不刷新的话这台手机界面还留着那一条（要重开页面才消失）。
+        //   这里轮询时顺带刷新，删掉的数据最迟 60 秒内从所有人手机上消失。
+        try {
+          if (Date.now() - (_C.tombFetchedAt || 0) > 60000) {
+            _C.tombFetchedAt = Date.now();
+            const _tr = await _sGET('config?select=value&key=eq.deleted_days');
+            if (_tr.length) _C.configMap['deleted_days'] = _tr[0].value;
+          }
+        } catch(e) {}
         for (const p of pollPeople) {
           try {
             const rows = await _sGET(`attendance?select=day_key,status_data&person=eq.${enc(p)}&year_month=eq.${ym}`);
@@ -2009,7 +2020,7 @@ function ensureOTHistory(person, year) {
 }
 
 // ── 云端同步状态（页头一行小字：☁ 已同步 / 未连接；未连接可点一下重试）──
-const APP_VER = '2026-11-25f';
+const APP_VER = '2026-11-25g';
 const APP_START = Date.now();
 function updateSyncBanner() {
   try {
