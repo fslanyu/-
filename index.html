@@ -1007,7 +1007,12 @@ if (_SB) {
 
     saveData = function(person, ym, data) {
       const ck = `${person}|${ym}`;
-      const oldData = _C.dataCache[ck] || {};
+      // ★ 删了哪几天，要跟"缓存 + 本机"的并集比：只看缓存的话，离线打开(缓存还没拉到)时
+      //   删除动作识别不出来 → 不立墓碑、不删云端 → 下次又被补传回来。
+      const oldCache = _C.dataCache[ck] || {};
+      let oldLocal = {};
+      try { oldLocal = JSON.parse(localStorage.getItem('att_' + person + '_' + ym) || '{}'); } catch(e) {}
+      const oldData = { ...oldLocal, ...oldCache };
       _C.dataCache[ck] = {...data};
       const enc = encodeURIComponent;
       // ★ 先写本机 localStorage（后面的补传/校验要读它）
@@ -1997,7 +2002,7 @@ function ensureOTHistory(person, year) {
 }
 
 // ── 云端同步状态（页头一行小字：☁ 已同步 / 未连接；未连接可点一下重试）──
-const APP_VER = '2026-11-25d';
+const APP_VER = '2026-11-25e';
 const APP_START = Date.now();
 function updateSyncBanner() {
   try {
