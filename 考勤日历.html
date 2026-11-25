@@ -762,6 +762,46 @@ if (_SB) {
   // ★ 稳健墓碑写入（2026-11-25）：先在云端读最新 → 合并 → 写回 → 回读校验。
   //   旧写法是把本机内存里的那一整份 JSON 覆盖上去：两台设备(手机+PC)同时删东西时，
   //   后写的那台会拿自己的旧副本把别人的墓碑整块冲掉，被删的日期于是又被"补传"长回来。
+  // ★ 未写进云端的墓碑排队（本机 localStorage）：删东西时网络差了也不会丢，
+  //   下次打开页面/网络恢复自动补写（__flushTombPending）。
+  const TOMB_PENDING_KEY = 'att_tomb_pending';
+  function _tombPending() { try { return JSON.parse(localStorage.getItem(TOMB_PENDING_KEY) || '{}'); } catch(e) { return {}; } }
+  function _tombPendingSave(o) { try { localStorage.setItem(TOMB_PENDING_KEY, JSON.stringify(o)); } catch(e) {} }
+  function _tombPendingAdd(person, ym, dks) {
+    const o = _tombPending(), k = person + '|' + ym, a = o[k] || [];
+    for (const d of dks) if (a.indexOf(d) < 0) a.push(d);
+    o[k] = a; _tombPendingSave(o);
+  }
+  function _tombPendingClear(person, ym, dks) {
+    const o = _tombPending(), k = person + '|' + ym, a = o[k];
+    if (!a) return;
+    const rest = a.filter(function (d) { return dks.indexOf(d) < 0; });
+    if (rest.length) o[k] = rest; else delete o[k];
+    _tombPendingSave(o);
+  }
+  window.__flushTombPending = async function() {
+    const o = _tombPending(); let n = 0;
+    for (const k of Object.keys(o)) {
+      const i = k.lastIndexOf('|'), person = k.slice(0, i), ym = k.slice(i + 1);
+      const days = (o[k] || []).slice();
+      if (!days.length) { _tombPendingClear(person, ym, days); continue; }
+      try {
+        if (!(await window.__tombAddMany(person, ym, days))) continue;   // 墓碑写不进云端就先留着
+        // 墓碑立好后再把云端残留行删干净（"手机删了 → 云端也删"）
+        for (const dk of days) {
+          try {
+            if (dk.indexOf('n:') === 0) {
+              await _sDELETE('notes', `person=eq.${encodeURIComponent(person)}&year_month=eq.${ym}&day_key=eq.${encodeURIComponent(dk.slice(2))}`);
+            } else {
+              await _sDELETE('attendance', `person=eq.${encodeURIComponent(person)}&year_month=eq.${ym}&day_key=eq.${encodeURIComponent(dk)}`);
+            }
+          } catch (e) {}
+        }
+        n++;
+      } catch(e) {}
+    }
+    return n;
+  };
   window.__tombAddMany = async function(person, ym, dks) {
     const k = person + "|" + ym;
     const list = (dks || []).filter(Boolean);
@@ -769,7 +809,8 @@ if (_SB) {
     const t0 = _tombs(), a0 = t0[k] || [];
     for (const d of list) if (a0.indexOf(d) < 0) a0.push(d);
     t0[k] = a0; _C.configMap["deleted_days"] = JSON.stringify(t0);   // 本机立刻生效
-    return await _sWriteRetry('删除墓碑', async () => {
+    _tombPendingAdd(person, ym, list);                              // 先排队，写成功再销账
+    const ok = await _sWriteRetry('删除墓碑', async () => {
       let cur = null;
       try {
         const r = await _sGET('config?select=value&key=eq.deleted_days');
@@ -789,6 +830,8 @@ if (_SB) {
       try { back = JSON.parse((chk[0] && chk[0].value) || '{}') || {}; } catch (e) {}
       if (!Array.isArray(back[k]) || list.some(function (d) { return back[k].indexOf(d) < 0; })) throw new Error('墓碑回读不一致');
     });
+    if (ok) _tombPendingClear(person, ym, list);   // 云端确认了才销掉排队记录
+    return ok;
   };
   window.__tombAdd = function(person, ym, dk) {
     const t = _tombs(), k = person + "|" + ym, a = t[k] || [];
@@ -796,10 +839,24 @@ if (_SB) {
     window.__tombAddMany(person, ym, [dk]).catch(function () {});     // 合并式写云端，绝不整块覆盖
   };
   window.__tombRemove = function(person, ym, dk) {
-    const t = _tombs(), k = person + "|" + ym, a = t[k];
-    if (!a) return;
-    const i = a.indexOf(dk);
-    if (i >= 0) { a.splice(i, 1); if (a.length) t[k] = a; else delete t[k]; _tombSave(t); }
+    const k = person + "|" + ym;
+    const t = _tombs(), a = t[k];
+    if (a) {
+      const i = a.indexOf(dk);
+      if (i >= 0) { a.splice(i, 1); if (a.length) t[k] = a; else delete t[k]; _C.configMap["deleted_days"] = JSON.stringify(t); }
+    }
+    _tombPendingClear(person, ym, [dk]);
+    // 撤销也要合并写（读最新→删这一条→写→回读），整块覆盖会冲掉别的设备刚立的墓碑
+    _sWriteRetry('撤销墓碑', async () => {
+      let cur = {};
+      try { const r = await _sGET('config?select=value&key=eq.deleted_days'); if (r.length) cur = JSON.parse(r[0].value || '{}') || {}; } catch (e) {}
+      const arr = (cur[k] || []).filter(function (d) { return d !== dk; });
+      if (arr.length) cur[k] = arr; else delete cur[k];
+      const sv = JSON.stringify(cur), m = 'key=eq.deleted_days';
+      const ex = await _sGET('config?select=key&' + m);
+      ex.length ? await _sPATCH('config', m, { value: sv }) : await _sPOST('config', { key: 'deleted_days', value: sv });
+      _C.configMap["deleted_days"] = sv;
+    }).catch(function () {});
   };
 
   // 从 Supabase 加载（带重试：部分网络首次连不上，最多试3次）
@@ -977,8 +1034,10 @@ if (_SB) {
       // DELETE keys removed from data (e.g. admin clears a day, employee deletes within 3-day window)
       for (const dk of Object.keys(oldData)) {
         if (!(dk in data)) {
-          window.__tombAdd(person, ym, dk); // ★ 记墓碑：防止员工端把已删的这天补传回来
           _writes.push((async () => {
+            // ★ 先确保墓碑进云端（失败会排队，下次开页面自动补写），再删行：
+            //   顺序反了的话中间窗口里别人的补传会把这一行推回来。
+            await window.__tombAddMany(person, ym, [dk]);
             for (let retry = 0; retry < 3; retry++) {
               try {
                 const m = `person=eq.${enc(person)}&year_month=eq.${ym}&day_key=eq.${enc(dk)}`;
@@ -1007,7 +1066,7 @@ if (_SB) {
         try {
           const enc = encodeURIComponent;
           const rows = await _sGET(`notes?select=day_key,note&person=eq.${enc(person)}&year_month=eq.${ym}`);
-          const d = {}; for (const r of rows) d[r.day_key] = r.note;
+          const d = {}; for (const r of rows) if (!_tombIncludes(person, ym, 'n:' + r.day_key)) d[r.day_key] = r.note;
           _C.noteCache[ck] = d;
           if ((currentPerson === person || viewTarget === person) && currentYear+'-'+String(currentMonth).padStart(2,'0') === ym) render();
         } catch(e) {}
@@ -1035,6 +1094,7 @@ if (_SB) {
       if (missing.length) {
         for (const [dk, note] of Object.entries(localNotes)) {
           if (!note || missing.indexOf(dk) === -1) continue;
+          if (_tombIncludes(person, ym, 'n:' + dk)) continue;   // 已删除的备注不再补传
           await _sWriteRetry('备注 ' + dk, async () => {
             const m = `person=eq.${enc(person)}&year_month=eq.${ym}&day_key=eq.${enc(dk)}`;
             const ex = await _sGET(`notes?select=id&${m}`);
@@ -1052,17 +1112,30 @@ if (_SB) {
     };
 
     saveNotes = function(person, ym, data) {
-      _C.noteCache[`${person}|${ym}`] = {...data};
+      const ck = `${person}|${ym}`;
+      const oldNotes = { ...(_C.noteCache[ck] || {}) };
+      _C.noteCache[ck] = {...data};
       orig_saveNotes(person, ym, data);  // 先写本机，校验要读它
       const enc = encodeURIComponent;
       const _writes = [];
       for (const [dk, note] of Object.entries(data)) {
+        if (!note) continue;                                   // 空备注不写云端
+        if (_tombIncludes(person, ym, 'n:' + dk)) window.__tombRemove(person, ym, 'n:' + dk);  // 重新填了 → 撤销墓碑
+        if (oldNotes[dk] === note) continue;                   // 没变就不写，避免把别人删掉的备注又推回去
         _writes.push(_sWriteRetry('备注 ' + dk, async () => {
           const m = `person=eq.${enc(person)}&year_month=eq.${ym}&day_key=eq.${enc(dk)}`;
           const ex = await _sGET(`notes?select=id&${m}`);
           ex.length ? await _sPATCH('notes', `id=eq.${ex[0].id}`, {note})
                     : await _sPOST('notes', {person, year_month: ym, day_key: dk, note});
         }));
+      }
+      // ★ 被清掉的备注：立墓碑（n: 前缀）+ 删云端行，否则下次刷新又回来
+      for (const dk of Object.keys(oldNotes)) {
+        if (data[dk]) continue;
+        _writes.push((async () => {
+          try { await window.__tombAddMany(person, ym, ['n:' + dk]); } catch(e) {}
+          try { await _sDELETE('notes', `person=eq.${enc(person)}&year_month=eq.${ym}&day_key=eq.${enc(dk)}`); } catch(e) {}
+        })());
       }
       // ★ 写入结束后回读校验（失败已由 _sWriteRetry 提示，此处只做兜底记录）
       Promise.all(_writes)
@@ -1518,6 +1591,9 @@ if (_SB) {
         catch(e) { console.error('Supabase load retry '+(i+1)+':', e); if (i < 2) await _sleep(1500*(i+1)); }
       }
       let degraded = !_C.people || !_C.people.length;
+      // ★ 上次删除时网络差、墓碑没写进云端的，这里自动补写，并把云端残留行删掉
+      //   （"手机删了但云端还有" 就是靠这一条兜住的）
+      if (loaded) { try { window.__flushTombPending().then(function (n) { if (n > 0) console.log('🪦 补写墓碑 ' + n + ' 组'); }); } catch(e) {} }
       // ★ 名单/配置没取到 → 后台每 20 秒自己重试一次（最多 15 次≈5 分钟）。
       //   手机那条线路时通时不通，人把页面放着不管，网络一恢复就自动补上名单和配置，不用重开。
       if (!loaded || degraded) {
@@ -1532,6 +1608,7 @@ if (_SB) {
                 clearInterval(t);
                 try { _orig_savePeople_ls([..._C.people]); } catch(e) {}
                 try { _markCloud(true); } catch(e) {}
+                try { window.__flushTombPending(); } catch(e) {}   // 网络恢复后补写之前没写进去的墓碑
                 if (window.__needPickIdentity) {
                   try { showIdentityGate(); } catch(e) {}
                   try { if (window.__gateFill) window.__gateFill(); } catch(e) {}
@@ -1920,7 +1997,7 @@ function ensureOTHistory(person, year) {
 }
 
 // ── 云端同步状态（页头一行小字：☁ 已同步 / 未连接；未连接可点一下重试）──
-const APP_VER = '2026-11-25c';
+const APP_VER = '2026-11-25d';
 const APP_START = Date.now();
 function updateSyncBanner() {
   try {
